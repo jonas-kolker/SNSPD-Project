@@ -140,8 +140,8 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1"):
         raise ValueError("Time arrays from both channels do not match.")
 
     # Combine time and amplitude data into single arrays
-    ref_data = np.asarray(time_array_r, ref_array)
-    chip_data = np.asarray(time_array_c, chip_array)
+    ref_data = np.asarray([time_array_r, ref_array])
+    chip_data = np.asarray([time_array_c, chip_array])
     
     return ref_data, chip_data
 
@@ -193,8 +193,8 @@ def extract_waves_multi(scope, ref_thresh, N, trig_channel="C1"):
             raise ValueError("Time arrays from both channels do not match.")
         
         # Combine time and amplitude data into single arrays
-        ref_data = np.asarray(time_array_r, ref_array)
-        chip_data = np.asarray(time_array_c, chip_array)
+        ref_data = np.asarray([time_array_r, ref_array])
+        chip_data = np.asarray([time_array_c, chip_array])
         
         # Append data from that acquisition to lists
         ref_waves_list.append(ref_data)
