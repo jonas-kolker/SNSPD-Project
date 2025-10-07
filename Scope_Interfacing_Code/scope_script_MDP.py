@@ -205,6 +205,52 @@ def extract_waves_multi(scope, ref_thresh, N, trig_channel="C1"):
     scope.set_trigger_mode("STOP")
     return ref_waves_list, chip_waves_list
 
+def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"):
+    """
+    Retrieves waveforms from both channels of the scope N times (triggered by falling edge). Waveform
+    segments are stored on scope until all acquisitions are complete, then they're transferred to the pc.
+    
+    Parameters:
+        scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
+        ref_thresh (float): The voltage level at which to trigger.
+        N (int): The number of triggered waveforms from each channel to acquire
+        num_samples (int): The number of samples to acquire per segment (ie the size of the segment)
+        trig_channel (str): The channel to set the trigger on (default is "C1").
+
+    Returns:
+        ref_waves_list (list of np.arrays): List of reference signal timestamps and amplitudes arrays.
+        chip_waves_list (list of np.arrays): List of chip signal timestamps and amplitudes arrays.
+    """
+
+    # Stop any previous acquisitions and clear buffers
+    scope.set_trigger_mode("STOP")
+    scope.write("CLEAR")
+
+    # Set the trigger to falling edge on channel 1 below threshold voltage
+    set_falling_edge_trigger(scope, trig_channel, ref_thresh)
+
+    # Set sequence mode to be on for N segments
+    scope.write(F"SEQ ON, {N}, {num_samples}")
+
+    # Set trigger mode to single
+    scope.set_trigger_mode("SINGLE")
+    scope.trigger()
+    scope.wait()
+
+    # Retrieve waveforms from both channels -- SHOULD return all segments together
+    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=8000) # How big should str length be?
+    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=8000)
+
+    # Check if time arrays match each other
+    if not np.array_equal(time_array_r, time_array_c):
+        raise ValueError("Time arrays from both channels do not match.")
+
+    # Combine time and amplitude data into single arrays
+    ref_data = np.asarray([time_array_r, ref_array])
+    chip_data = np.asarray([time_array_c, chip_array])
+    
+    return ref_data, chip_data
+
 
 def get_offsets(ref_data, chip_data):
     """
