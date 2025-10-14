@@ -18,7 +18,7 @@ from sys import exit
 plt.style.use("ggplot")
 rm = visa.ResourceManager()
 
-with open("COM_ports.txt") as fin: #the file contains the COM port of arduino and the VISA address of the SMU
+with open("Arduino_SNSPD/COM_ports.txt") as fin: #the file contains the COM port of arduino and the VISA address of the SMU
     arduinoPort, SMU_addr = fin.read().splitlines()
 
 #%%

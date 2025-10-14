@@ -84,7 +84,7 @@ def check_number_of_points(scope, channel):
         channel (str): The channel to check (e.g., "C1", "C
     """
     scope.write(f"VBS? 'return = app.Acquisition.{channel}.Out.Result.NumPoints'")
-    num_points = int(float(scope.ReadString(1000)))
+    num_points = int(float(scope.read(1000)))
     print("Default NumPoints:", num_points)
 
 
@@ -103,7 +103,7 @@ def set_falling_edge_trigger(scope, channel, ref_thresh):
     scope.write(f"""VBS 'app.acquisition.trigger.edge.level = "{ref_thresh} V" ' """)
 
 
-def extract_waves_once(scope, ref_thresh, trig_channel="C1"):
+def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
     """
     Retrieves waveforms from both channels of the scope a single time after triggering on a falling edge on channel 1.
     
@@ -111,6 +111,7 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1"):
         scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
         ref_thresh (float): The voltage level at which to trigger.
         trig_channel (str): The channel to set the trigger on (default is "C1").
+        str_length (int): The number of datapoints from each acquisition to return to the PC
 
     Returns:
         ref_data (np.array): Array of reference signal timestamps and amplitudes.
@@ -132,8 +133,8 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1"):
     scope.wait()
 
     # Retrieve waveforms from both channels
-    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=8000) # How big should str length be?
-    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=8000)
+    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=str_length) # How big should str length be?
+    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=str_length)
 
     # Check if time arrays match each other
     if not np.array_equal(time_array_r, time_array_c):
@@ -213,7 +214,7 @@ def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"
     Parameters:
         scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
         ref_thresh (float): The voltage level at which to trigger.
-        N (int): The number of triggered waveforms from each channel to acquire
+        N (int): The number of triggered waveforms from each channel to acquire. Max is 15,000
         num_samples (int): The number of samples to acquire per segment (ie the size of the segment)
         trig_channel (str): The channel to set the trigger on (default is "C1").
 
@@ -238,8 +239,8 @@ def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"
     scope.wait()
 
     # Retrieve waveforms from both channels -- SHOULD return all segments together
-    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=8000) # How big should str length be?
-    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=8000)
+    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=N*num_samples) # How big should str length be?
+    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=N*num_samples)
 
     # Check if time arrays match each other
     if not np.array_equal(time_array_r, time_array_c):
@@ -252,27 +253,29 @@ def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"
     return ref_data, chip_data
 
 
-def get_offsets(ref_data, chip_data):
+def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     """
     Calculates the timing offset between reference and chip falling edge detection signals.
     
     Parameters:
         ref_array (np.array): Array of reference signal data. First axis should be time, second axis signal amplitude.
         chip_array (np.array): Array of chip signal data. First axis should be time, second axis signal amplitude.
-
+        ref_threshold (flaot): Threshold value reference signal below which we consider detection events
+        chip_threshold (flaot): Threshold value chip signal below which we consider detection events
+        clip (int): Number of initial samples to be ignored 
     Returns:
         offset_vals (np.array): Array of time differences between falling edge events in chip and reference
     """
     
     # Extract amplitude data
-    ref_array = ref_data[1]
-    chip_array = chip_data[1]
+    ref_array = ref_data[1][clip:]
+    chip_array = chip_data[1][clip:]
 
     # Check if time arrays match
     if not np.array_equal(ref_data[0], chip_data[0]):
         raise ValueError("Time arrays from both channels do not match.")
     
-    time_array = np.array(ref_data)[0]  
+    time_array = np.array(ref_data)[0][clip:]  
     
     # Confirm all arrays are of the same length
     min_length = min(len(ref_array), len(chip_array))
@@ -280,8 +283,8 @@ def get_offsets(ref_data, chip_data):
     chip_array = chip_array[:min_length]
 
     # Get threshold values for both signals below which we consider detection events
-    ref_threshold = (np.max(ref_array) + np.min(ref_array)) / 2
-    chip_threshold = (np.max(chip_array) + np.min(chip_array)) / 2
+    # ref_threshold = (np.max(ref_array) + np.min(ref_array)) / 2
+    # chip_threshold = (np.max(chip_array) + np.min(chip_array)) / 2
 
     # Find indices where signals cross the threshold (falling edge detection)
     r_above = ref_array > ref_threshold
@@ -289,10 +292,14 @@ def get_offsets(ref_data, chip_data):
     ref_crossings_indices  = np.where( (r_above[:-1]) & (~r_above[1:]) )[0]
     chip_crossings_indices = np.where( (c_above[:-1]) & (~c_above[1:]) )[0]
 
+    print(ref_crossings_indices)
+    print(chip_crossings_indices)
+    
+    print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
+    print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
+    
     # Check that each channel has corresponding falling edge events
     if len(ref_crossings_indices) != len(chip_crossings_indices):
-        print(f"Number of reference singla threshold crossings: {len(ref_crossings_indices)}")
-        print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
         raise ValueError("Mismatch in number of detection events between reference and chip signals.")
     
     # Calculate time differences between falling edge events
@@ -326,7 +333,7 @@ def make_historgram_and_guassian(offset_vals, plot=True, hist_bins=30):
     hist, bin_edges = np.histogram(offset_vals, bins=hist_bins)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-    # Fit a guassian to the histogram data
+    # # Fit a guassian to the histogram data
     popt, pcov = curve_fit(guassian, 
                            bin_centers, 
                            hist, 

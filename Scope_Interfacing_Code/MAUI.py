@@ -9,7 +9,7 @@ class MAUI:
     def __enter__(self):
         print(f"Connecting to MAUI scope via {self.resource_name}")
         self.scope = win32com.client.Dispatch(self.resource_name)
-        self.scope.MakeConnection("IP:169.254.123.240")  # or use actual IP or USB if configured
+        self.scope.MakeConnection("IP:169.254.250.104")  # or use actual IP or USB if configured
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -18,6 +18,10 @@ class MAUI:
 
     def write(self, cmd):
         self.scope.WriteString(cmd, 1)
+
+    def read(self, num):
+        val = self.scope.ReadString(num)
+        return val
 
     def query(self, cmd, str_length = 80):
         self.scope.WriteString(cmd, 1)
