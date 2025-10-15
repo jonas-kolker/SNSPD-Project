@@ -19,7 +19,7 @@ When the scope is connected to a local network it will have a distinct IP addres
 You will know the scope and PC are properly connected if you can add and see the scope on NI Max under "Network Devices".
 
 ### Control Drivers
-There are two drivers that can be used to remotely control the scope through python. These are the VISA driver and the ActiveDSO driver. Both serve the same purpose: provide an interface through which instrument commands and outputs can be transferred. 
+There are two drivers that can be used to remotely control the scope through python. These are the VISA driver and the ActiveDSO driver. They both work to rovide an interface to transfer data between the PC and scope. 
 
 The `MAUI.py` file is written to work through ActiveDSO. For this to work you must install the ActiveDSO software. A guide can be found [here.](https://www.teledynelecroy.com/doc/using-python-with-activedso-for-remote-communication) This will require a Teledyne Lecroy account. It will take a few buisiness days to get approval if you're registering one for the first time. 
 
@@ -31,3 +31,18 @@ Once you've connected to the scope through the appropriate interface, you may be
 The `MAUI.py` file contains a class that streamlines the connection and control processes outlined in the manual. As mentioned earlier, it will not work without ActiveDSO installed. 
 
 The `scope_script_MDP.py` file utilizes the class defined in `MAUI.py` for higher level functions directly designed with jitter measurements in mind.
+
+## Sequence Acquisition Details
+The scope supports a variety of modes for acquiring data. In our case, where we want to acquire many waveforms and send all of them to the PC, the best option is sequence mode. With this you set a number of waveform sequences to acquire and the scope stores them all in local memory until all the data has been collected. Afterwards you can extract all the waveforms together in one numpy array. 
+
+An alternative is normal mode, which collects multiple waveforms won't store multiple acquisitions locally. This is discouraged by the manual, as it will dramatically increase the runtime.
+
+### Samples per sequence 
+The max number of samples acquired in each sequence can be set manually. However the scope will convert this to the nearest lowest acceptable value. The specific maximum allowed sample value is limited by memory constraints and internal settings.
+
+You can find the true number of samples per acquisition from the output of `MAUI().query("""VBS? 'return=app.acquisition.horizontal.maxsamples'""")` using the class from the `MAUI.py` file.
+
+The time scaling for sequence mode depends on a number of factors. However a general sense can be gained from the plot below. Each acquisition was taken over a 10 $\mu\text{s}$ window, and 100 acquisitions were taken:
+
+![Time scaling vs sample acquisition](../time_scaling_log.png)
+

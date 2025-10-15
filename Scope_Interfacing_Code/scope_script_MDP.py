@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
-import MAUI
+# import MAUI
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats import norm
 import time
-import pandas as pd
+# import pandas as pd
 
 # Things to work on still:
 #    - Adjust horizontal (time) scale and range for acquisitions
@@ -310,7 +310,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     return offset_vals
 
 
-def make_historgram_and_gaussian(offset_vals, plot=True, hist_bins=30):
+def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutoff=0):
     """
     Create a histogram of the offset values and fit a gaussian to it
 
@@ -318,6 +318,7 @@ def make_historgram_and_gaussian(offset_vals, plot=True, hist_bins=30):
         offset_vals (np.array): Array of time differences between falling edge events in chip and reference
         plot (bool): Whether to plot the histogram and fitted gaussian
         hist_bins (int): Number of bins to use in the histogram
+        stdv_cutoff (int): Filters out data more than some this many sigmas from the mean. Set to 0 for no cutoff.
     
     Returns:
         hist (np.array): Array of histogram bin counts
@@ -326,32 +327,54 @@ def make_historgram_and_gaussian(offset_vals, plot=True, hist_bins=30):
         err (np.array): Array of the standard errors of the fitted parameters [A_err, mu_err, sigma_err]
         
     """
-    # Turn offset values into histogram with specified number of bins
-    hist, bin_edges = np.histogram(offset_vals, bins=hist_bins)
+    # Omit outlier data for prettier histogram if cutoff not set to 0
+    if stdv_cutoff != 0:
+         mask = np.abs(offset_vals-np.mean(offset_vals)) < stdv_cutoff * np.std(offset_vals)
+    else:
+        mask = np.ones_like(offset_vals) == 1
+    
+    filtered_vals = offset_vals[mask]
+
+    hist, bin_edges = np.histogram(filtered_vals, bins=hist_bins)
+    
+    A = np.max(hist)
+    mean = np.mean(filtered_vals)
+    stdv = np.std(filtered_vals)
+
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-    def gaussian(x, A, mu, sigma):
+    def gaussian(x, amp, mu, sigma):
         
         # We multiply by bin width to account for the fact that the gaussian here is measuring
         # counts, NOT a probability distribution
-        return A * np.exp(-0.5 * ((x - mu) / sigma)**2) #* bin_width
+        return amp * np.exp(-0.5 * ((x - mu) / sigma)**2) #* bin_width
 
     # # Fit a gaussian to the histogram data
-    popt, pcov = curve_fit(gaussian, 
-                           bin_centers, 
-                           hist, 
-                           p0=[np.max(hist), np.mean(offset_vals),  np.std(offset_vals)])
+    # popt, pcov = curve_fit(gaussian, 
+    #                        bin_centers, 
+    #                        hist, 
+    #                        p0=[mean, stdv])
+    
     
     # Errors associated with the fitted parameters
-    err = np.sqrt(np.diag(pcov))
+    # err = np.sqrt(np.diag(pcov))
+
+    # # Fitted values
+    # mu = popt[1]
+    # sigma = popt[2]
+    # sigma_err = err[2]
+
 
     if plot:
         # Plot histogram and fitted gaussian
         plt.figure(figsize=(8,5))
-        plt.hist(offset_vals, bins=bin_edges)
-        x_fit = np.linspace(min(offset_vals), max(offset_vals), 1000)
-        y_fit = gaussian(x_fit, *popt)
-        plt.plot(x_fit, y_fit, 'r--', label= r'Fit $\sigma=$' + f'{popt[2]:.2e} ± {err[2]:.2e}')
+        plt.hist(filtered_vals)
+        # plt.xlim(mean - stdv_cutoff*stdv, mean + stdv_cutoff*stdv_cutoff)
+        
+        x_fit = np.linspace(min(filtered_vals), max(filtered_vals), 1000)
+        y_fit = gaussian(x_fit, A, mean, stdv)
+        plt.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
+        
         plt.xlabel('Time Offset (s)')
         plt.ylabel('Counts')
         plt.title('Histogram of Time Offsets with Fitted gaussian')

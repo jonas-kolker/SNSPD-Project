@@ -45,7 +45,7 @@ if __name__=="__main__":
         loop = 0
         
         while loop < num_loops:
-            print(f"Loop {i}")
+            print(f"Loop {loop}")
             # Reset scope settings
             c.reset()
 
@@ -132,4 +132,4 @@ if __name__=="__main__":
         print(f"\nAverage offset btwn edges: {mean_val}")
         print(f"Stdv of offset time: {std_val}")
 
-        hist, bin_edges, popt, err = ss.make_historgram_and_gaussian(offset_vals_all, hist_bins=40)
+        hist, bin_edges, popt, err = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40)
