@@ -66,10 +66,10 @@ class MAUI:
         time_div = float(self.query("TDIV?"))
         dt = float(self.query(f"{channel}:INSP? HORIZ_INTERVAL, FLOAT").split(":")[1].strip().replace('"', ''))
         # sample_rate = 40e9
-        print("CHDR",self.query("CHDR?")) #"OFF"
-        print("CORD",self.query("CORD?")) #"LO"
-        print("CFMT",self.query("CFMT?")) #"DEF9,BYTE,BIN"
-        print("WFSU", self.query("WFSU?")) # "SP,0,NP,0,FP,0,SN,0"
+        # print("CHDR",self.query("CHDR?")) #"OFF"
+        # print("CORD",self.query("CORD?")) #"LO"
+        # print("CFMT",self.query("CFMT?")) #"DEF9,BYTE,BIN"
+        # print("WFSU", self.query("WFSU?")) # "SP,0,NP,0,FP,0,SN,0"
         # print(self.query("C1:INSP? HORIZ_INTERVAL"))
         byte_data = np.frombuffer(raw[364:], dtype=np.int8)
         volt_data = byte_data * (volts_per_div / 25.0) + offset_volts

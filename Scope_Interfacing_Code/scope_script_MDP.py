@@ -11,7 +11,7 @@ import pandas as pd
 #    - Adjust str_length based on number of points in each acquisition
 #    - Something tells me exctract_waves_multi() will cause memory issues if N is too big (how big is that??)
 #    - Look into using sequence mode instead of normal mode for multi-trigger acquisitions (should be faster, but too big N may cause more problems than with normal mode)
-#    - While acquiring data, dynamically fit a guassian to the histogram and only stop acquisition when the fit converges below a certain error
+#    - While acquiring data, dynamically fit a gaussian to the histogram and only stop acquisition when the fit converges below a certain error
 
 # - - - - - - - - - - - - - - - - - - - Getting Jitter from Built-In Scope Histogram Function - - - - - - - - - - - - - - - - - - - 
 
@@ -146,7 +146,7 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
     
     return ref_data, chip_data
 
-
+# Don't use this guy, use extract_waves_multi_seq instead
 def extract_waves_multi(scope, ref_thresh, N, trig_channel="C1"):
     """
     Retrieves waveforms from both channels of the scope N times (triggered by falling edge)
@@ -292,17 +292,17 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     ref_crossings_indices  = np.where( (r_above[:-1]) & (~r_above[1:]) )[0]
     chip_crossings_indices = np.where( (c_above[:-1]) & (~c_above[1:]) )[0]
 
-    print(ref_crossings_indices)
-    print(chip_crossings_indices)
-    
-    print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
-    print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
-    
+    # print(ref_crossings_indices)
+    # print(chip_crossings_indices)
+    # print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
+    # print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
+
     # Check that each channel has corresponding falling edge events
     if len(ref_crossings_indices) != len(chip_crossings_indices):
+        print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
+        print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
         raise ValueError("Mismatch in number of detection events between reference and chip signals.")
-    
-    # Calculate time differences between falling edge events
+
     ref_crossing_times = time_array[ref_crossings_indices]
     chip_crossing_times = time_array[chip_crossings_indices]
     offset_vals = chip_crossing_times - ref_crossing_times
@@ -310,13 +310,13 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     return offset_vals
 
 
-def make_historgram_and_guassian(offset_vals, plot=True, hist_bins=30):
+def make_historgram_and_gaussian(offset_vals, plot=True, hist_bins=30):
     """
-    Create a histogram of the offset values and fit a guassian to it
+    Create a histogram of the offset values and fit a gaussian to it
 
     Parameters:
         offset_vals (np.array): Array of time differences between falling edge events in chip and reference
-        plot (bool): Whether to plot the histogram and fitted guassian
+        plot (bool): Whether to plot the histogram and fitted gaussian
         hist_bins (int): Number of bins to use in the histogram
     
     Returns:
@@ -326,35 +326,45 @@ def make_historgram_and_guassian(offset_vals, plot=True, hist_bins=30):
         err (np.array): Array of the standard errors of the fitted parameters [A_err, mu_err, sigma_err]
         
     """
-    def guassian(x, A, mu, sigma):
-        return A * norm.pdf(x, mu, sigma)
-    
     # Turn offset values into histogram with specified number of bins
     hist, bin_edges = np.histogram(offset_vals, bins=hist_bins)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-    # # Fit a guassian to the histogram data
-    popt, pcov = curve_fit(guassian, 
+    def gaussian(x, A, mu, sigma):
+        
+        # We multiply by bin width to account for the fact that the gaussian here is measuring
+        # counts, NOT a probability distribution
+        return A * np.exp(-0.5 * ((x - mu) / sigma)**2) #* bin_width
+
+    # # Fit a gaussian to the histogram data
+    popt, pcov = curve_fit(gaussian, 
                            bin_centers, 
                            hist, 
                            p0=[np.max(hist), np.mean(offset_vals),  np.std(offset_vals)])
     
-  
+    # Errors associated with the fitted parameters
     err = np.sqrt(np.diag(pcov))
 
     if plot:
-        # Plot histogram and fitted guassian
+        # Plot histogram and fitted gaussian
         plt.figure(figsize=(8,5))
-        plt.hist(offset_vals, bins=hist_bins)
+        plt.hist(offset_vals, bins=bin_edges)
         x_fit = np.linspace(min(offset_vals), max(offset_vals), 1000)
-        y_fit = guassian(x_fit, *popt)
-        plt.plot(x_fit, y_fit, 'r--', label= r'$\sigma=$' + f'{popt[2]:.2e} ± {err[2]:.2e}')
+        y_fit = gaussian(x_fit, *popt)
+        plt.plot(x_fit, y_fit, 'r--', label= r'Fit $\sigma=$' + f'{popt[2]:.2e} ± {err[2]:.2e}')
         plt.xlabel('Time Offset (s)')
         plt.ylabel('Counts')
-        plt.title('Histogram of Time Offsets with Fitted Guassian')
+        plt.title('Histogram of Time Offsets with Fitted gaussian')
         plt.legend()
         plt.show()
 
     return hist, bin_edges, popt, err
 
+def calculate_mean_and_std(offset_value_list):
+
+    offset_value_array = np.array(offset_value_list)
+    mean = np.mean(offset_value_array)
+    std_dev = np.std(offset_value_array)
+
+    return mean, std_dev
     
