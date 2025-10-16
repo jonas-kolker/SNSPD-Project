@@ -102,8 +102,29 @@ def set_falling_edge_trigger(scope, channel, ref_thresh):
     scope.write(r"""VBS 'app.acquisition.trigger.edge.slope = "Negative" ' """)
     scope.write(f"""VBS 'app.acquisition.trigger.edge.level = "{ref_thresh} V" ' """)
 
+def set_edge_qualified_trigger(scope, ref_channel="C1", ref_edge_slope="POS", ref_thresh=0,
+                               chip_channel="C2", chip_edge_slope="NEG", chip_thresh=0):
+    """
+    Set an edge qualified 
+    """
+    # Set the trigger to be edge qualified with the first source and qualifier sources set. No hold time limit
+    scope.write(f"TRSE TEQ,SR,{ref_channel},QL,{chip_channel},HT,OFF")
 
-def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
+    # Set the trigger level for the reference and chip signals
+    scope.write(f"{ref_channel}:TRLV {ref_thresh}V")
+    scope.write(f"{chip_channel}TRLV {chip_thresh}V")
+
+    # Set trigger slopes for signals
+    scope.write(f"{ref_channel}:TRSL {ref_edge_slope}")
+    scope.write(f"{chip_channel}:TRSL {chip_edge_slope}")
+
+
+
+def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9, 
+                       ref_channel="C1", chip_channel="C2",
+                       ref_edge_slope="POS", chip_edge_slope="NEG",
+                       str_length=1e5
+                       ):
     """
     Retrieves waveforms from both channels of the scope a single time after triggering on a falling edge on channel 1.
     
@@ -123,7 +144,8 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
     scope.write("CLEAR")
 
     # Set the trigger to falling edge on channel 1 below threshold voltage
-    set_falling_edge_trigger(scope, trig_channel, ref_thresh)
+    set_edge_qualified_trigger(scope, ref_channel, ref_edge_slope, ref_thresh,
+                               chip_channel, chip_edge_slope, chip_thresh)
 
     # Indicate single acquisition mode
     scope.set_trigger_mode("SINGLE") 
@@ -206,7 +228,8 @@ def extract_waves_multi(scope, ref_thresh, N, trig_channel="C1"):
     scope.set_trigger_mode("STOP")
     return ref_waves_list, chip_waves_list
 
-def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"):
+def extract_waves_multi_seq(scope, N, num_samples, ref_channel="C1", ref_edge_slope="POS", ref_thresh=.08,
+                               chip_channel="C2", chip_edge_slope="NEG", chip_thresh=-.9):
     """
     Retrieves waveforms from both channels of the scope N times (triggered by falling edge). Waveform
     segments are stored on scope until all acquisitions are complete, then they're transferred to the pc.
@@ -227,11 +250,12 @@ def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"
     scope.set_trigger_mode("STOP")
     scope.write("CLEAR")
 
-    # Set the trigger to falling edge on channel 1 below threshold voltage
-    set_falling_edge_trigger(scope, trig_channel, ref_thresh)
-
     # Set sequence mode to be on for N segments
     scope.write(F"SEQ ON, {N}, {num_samples}")
+
+    # Set the trigger to falling edge on channel 1 below threshold voltage
+    set_edge_qualified_trigger(scope, ref_channel, ref_edge_slope, ref_thresh,
+                               chip_channel, chip_edge_slope, chip_thresh)
 
     # Set trigger mode to single
     scope.set_trigger_mode("SINGLE")
@@ -298,9 +322,10 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     # print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
 
     # Check that each channel has corresponding falling edge events
+    print(f"\tNumber of reference threshold crossings: {len(ref_crossings_indices)}")
+    print(f"\tNumber of chip threshold crossings: {len(chip_crossings_indices)}")
     if len(ref_crossings_indices) != len(chip_crossings_indices):
-        print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
-        print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
+        
         raise ValueError("Mismatch in number of detection events between reference and chip signals.")
 
     ref_crossing_times = time_array[ref_crossings_indices]
@@ -308,7 +333,6 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     offset_vals = chip_crossing_times - ref_crossing_times
 
     return offset_vals
-
 
 def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutoff=0):
     """
@@ -334,7 +358,6 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         mask = np.ones_like(offset_vals) == 1
     
     filtered_vals = offset_vals[mask]
-
     hist, bin_edges = np.histogram(filtered_vals, bins=hist_bins)
     
     A = np.max(hist)
@@ -381,7 +404,7 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         plt.legend()
         plt.show()
 
-    return hist, bin_edges, popt, err
+    return hist, bin_edges
 
 def calculate_mean_and_std(offset_value_list):
 

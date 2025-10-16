@@ -12,10 +12,14 @@ if __name__=="__main__":
     chip_array_list = []
     offset_vals_list = []
     
-    N = 100 # Issues when over 100 for some reason when using Arduino signals
+    N = 20
     num_samples = int(1e4) 
-    div_time = 1e-6 # There are 10 divisons per acquisition
-    num_loops = 50
+    div_time = 50-9 # There are 10 divisons per acquisition
+    
+    num_loops = 2
+    ref_thresh = .08
+    chip_thresh = 0.00
+    clip = num_samples
     
     # Make appropriate (sub)directories for storing data from each loop
     save_dir = "C:\\LeCroy\\ScopeData"
@@ -50,26 +54,25 @@ if __name__=="__main__":
             c.reset()
 
             # Set appropriate voltage scales and time divisions for acquisition
-            c.set_vertical_scale("C1", 2)
-            c.set_vertical_scale("C2", 2)
-            c.set_timebase(div_time)
+            c.set_vertical_scale("C1", .05)# For AWG this should be 20 mV (.020)
+            c.set_vertical_scale("C2", .22)
 
             c.idn() # Needed for code to run for some reason
 
             # Create files to save waveforms from this loop
-            ref_data_file_i = os.path.join(save_dir_ref, f"ref_data_{i:03}.npy")
-            chip_data_file_i = os.path.join(save_dir_chip, f"chip_data_{i:03}.npy")
-            offset_file_i = os.path.join(save_dir_offset, f"offset_values_{i:03}.txt")
+            ref_data_file_i = os.path.join(save_dir_ref, f"ref_data_{loop:03}.npy")
+            chip_data_file_i = os.path.join(save_dir_chip, f"chip_data_{loop:03}.npy")
+            offset_file_i = os.path.join(save_dir_offset, f"offset_values_{loop:03}.txt")
 
             # Get the absolute time wrt previous loops so that time data between files is distinct
-            time_this_loop = N*10*div_time*i # Number of waveforms * 10 time divisions per waveform * loop number
+            time_this_loop = N*10*div_time*loop # Number of waveforms * 10 time divisions per waveform * loop number
 
             # Get N waveform sequences from both channels 
             ref_data, chip_data = ss.extract_waves_multi_seq(c, 
-                                                        ref_thresh=0,
                                                         N=N,
                                                         num_samples=num_samples, 
-                                                        trig_channel="C1")
+                                                        ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
+                                                        chip_channel="C2", chip_edge_slope="NEG", chip_thresh=chip_thresh)
             print(f"\tData acquired")
             # Add approprite offset to time data
             ref_data[0] = ref_data[0] + time_this_loop
@@ -80,18 +83,19 @@ if __name__=="__main__":
                 # Get time offset btwn falling edges in both channels
                 offset_vals = ss.get_offsets(ref_data,
                                     chip_data,
-                                    ref_threshold=0,
-                                    chip_threshold=0,
-                                    clip=num_samples)
+                                    ref_threshold=ref_thresh,
+                                    chip_threshold=chip_thresh,
+                                    clip=clip)
                 
                 print(f"\tOffsets calculated")
+                
                 # Save wave data to files specific to this loop
                 np.save(ref_data_file_i, ref_data.T)
                 np.save(chip_data_file_i, chip_data.T)
                 
                 # Just so we don't overflow memory; just for testing
-                os.remove(ref_data_file_i)
-                os.remove(chip_data_file_i)
+                # os.remove(ref_data_file_i)
+                # os.remove(chip_data_file_i)
 
                 print("\tWaveforms saved")
 
@@ -132,4 +136,4 @@ if __name__=="__main__":
         print(f"\nAverage offset btwn edges: {mean_val}")
         print(f"Stdv of offset time: {std_val}")
 
-        hist, bin_edges, popt, err = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40)
+        hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40)
