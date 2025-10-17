@@ -4,16 +4,8 @@ import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats import norm
 import time
-# import pandas as pd
 
-# Things to work on still:
-#    - Adjust horizontal (time) scale and range for acquisitions
-#    - Adjust str_length based on number of points in each acquisition
-#    - Something tells me exctract_waves_multi() will cause memory issues if N is too big (how big is that??)
-#    - Look into using sequence mode instead of normal mode for multi-trigger acquisitions (should be faster, but too big N may cause more problems than with normal mode)
-#    - While acquiring data, dynamically fit a gaussian to the histogram and only stop acquisition when the fit converges below a certain error
-
-# - - - - - - - - - - - - - - - - - - - Getting Jitter from Built-In Scope Histogram Function - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - -  Working with Built-In Scope Histogram Function (NOT TESTED) - - - - - - - - - - - - - - - - - - - 
 
 def setup_jitter_histogram(scope, ch1="C1", ch2="C2", polarity1="FALL", polarity2="FALL", measurement_slot="P1"):
     """
@@ -73,7 +65,7 @@ def extract_histogram_to_csv(scope, filename="C:\\LeCroy\\JitterHist.csv", measu
         print("Couldn't read back CSV automatically. Ensure the file is accessible.")
         return None
 
-# - - - - - - - - - - - - - - - - - - - - - - Getting Jitter from Raw Scope Waveform Data - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data - - - - - - - - - - - - - - - - - - - - - - 
 
 def check_number_of_points(scope, channel):
     """
@@ -102,10 +94,23 @@ def set_falling_edge_trigger(scope, channel, ref_thresh):
     scope.write(r"""VBS 'app.acquisition.trigger.edge.slope = "Negative" ' """)
     scope.write(f"""VBS 'app.acquisition.trigger.edge.level = "{ref_thresh} V" ' """)
 
+
 def set_edge_qualified_trigger(scope, ref_channel="C1", ref_edge_slope="POS", ref_thresh=0,
                                chip_channel="C2", chip_edge_slope="NEG", chip_thresh=0, hold_time=50e-9):
     """
-    Set an edge qualified 
+    Set an edge qualified trigger btwn two channels. Trigger goes off only if the chip edge is detected, qualified by the reference edge
+    before it.
+
+    Parameters:
+        scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
+        ref_channel (str): Reference channel
+        ref_edge_slope (str): Falling vs rising edge for trigger
+        ref_thres (float): Threshold voltage
+        chip_channel (str): Chip signal channel
+        chip_edge_slope (str): Falling vs rising edge for trigger
+        chip_thres (float): Threshold voltage
+        hold_time (int): Chip falling edge must occur within this many seconds after ref rising edge
+
     """
     # Set the trigger to be edge qualified with the first source and qualifier sources set. No hold time limit
     scope.write(f"TRSE TEQ,SR,{chip_channel},QL,{ref_channel},HT,TL,HV,{hold_time}")
@@ -117,7 +122,6 @@ def set_edge_qualified_trigger(scope, ref_channel="C1", ref_edge_slope="POS", re
     # Set trigger slopes for signals
     scope.write(f"{ref_channel}:TRSL {ref_edge_slope}")
     scope.write(f"{chip_channel}:TRSL {chip_edge_slope}")
-
 
 
 def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9, 
@@ -168,6 +172,7 @@ def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9,
     
     return ref_data, chip_data
 
+
 def extract_waves_multi_seq(scope, N, num_samples, 
                             ref_channel="C1", ref_edge_slope="POS", ref_thresh=.08,
                             chip_channel="C2", chip_edge_slope="NEG", chip_thresh=-.9, 
@@ -178,10 +183,15 @@ def extract_waves_multi_seq(scope, N, num_samples,
     
     Parameters:
         scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
-        ref_thresh (float): The voltage level at which to trigger.
         N (int): The number of triggered waveforms from each channel to acquire. Max is 15,000
         num_samples (int): The number of samples to acquire per segment (ie the size of the segment)
-        trig_channel (str): The channel to set the trigger on (default is "C1").
+        ref_channel (str): Reference channel
+        ref_edge_slope (str): Falling vs rising edge for trigger
+        ref_thres (float): Threshold voltage
+        chip_channel (str): Chip signal channel
+        chip_edge_slope (str): Falling vs rising edge for trigger
+        chip_thres (float): Threshold voltage
+        hold_time (int): Chip falling edge must occur within this many seconds after ref rising edge
 
     Returns:
         ref_waves_list (list of np.arrays): List of reference signal timestamps and amplitudes arrays.
@@ -220,6 +230,7 @@ def extract_waves_multi_seq(scope, N, num_samples,
     
     return ref_data, chip_data
 
+
 def chunk_data(data_array, num_samples):
     """
     Take an array full of data and seperate an list of smaller arrays with a specified number of samples in each
@@ -236,6 +247,7 @@ def chunk_data(data_array, num_samples):
     chunks = np.array_split(data_array, indices)
 
     return chunks 
+
 
 def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mismatch_handling=False, num_samples=0):
     """
@@ -345,6 +357,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
 
         return offset_vals
 
+
 def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutoff=0):
     """
     Create a histogram of the offset values and fit a gaussian to it
@@ -389,17 +402,18 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         plt.hist(filtered_vals, bins=hist_bins)
         # plt.xlim(mean - stdv_cutoff*stdv, mean + stdv_cutoff*stdv_cutoff)
         
-        x_fit = np.linspace(min(filtered_vals), max(filtered_vals), 1000)
+        x_fit = np.linspace(min(bin_edges), max(bin_edges), 1000)
         y_fit = gaussian(x_fit, A, mean, stdv)
         plt.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
         
         plt.xlabel('Time Offset (s)')
         plt.ylabel('Counts')
-        plt.title('Histogram of Time Offsets with Fitted gaussian')
+        plt.title('Histogram of Time Offsets')
         plt.legend()
         plt.show()
 
     return hist, bin_edges
+
 
 def calculate_mean_and_std(offset_value_list):
 

@@ -14,9 +14,9 @@ if __name__=="__main__":
     num_samples = int(1e4) # Number of samples per acquisition segment in the sequence
     div_time = 50e-9 # There are 10 divisons per acquisition
     
-    hold_time = 1e-8 # Chip falling edge must occur within this many seconds after ref rising edge. Should be less than AWG signal high width
+    hold_time = 900e-9 # Chip falling edge must occur within this many seconds after ref rising edge.
     
-    num_loops = 50 # Number of sequences 
+    num_loops = 500 # Number of sequences 
 
     # Voltage thresholds for reference and chip signals
     ref_thresh = .08
@@ -50,11 +50,6 @@ if __name__=="__main__":
         # Delete cumulative files
         if os.path.exists(combined_offset_file):
             os.remove(combined_offset_file)
-        # if os.path.exists(combined_ref_data_file):
-        #     os.remove(combined_ref_data_file)
-        # if os.path.exists(combined_chip_data_file):
-        #     os.remove(combined_chip_data_file)
-
 
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(save_dir_ref, exist_ok=True)
@@ -92,11 +87,11 @@ if __name__=="__main__":
                                                         chip_channel="C2", chip_edge_slope="NEG", chip_thresh=chip_thresh,
                                                         hold_time=hold_time)
             print(f"\tData acquired")
+            
             # Add approprite offset to time data
             ref_data[0] = ref_data[0] + time_this_loop
             chip_data[0] = chip_data[0] + time_this_loop
 
-            # See if data works for calculating edge offsets
             try:
                 # Get time offset btwn falling edges in both channels
                 offset_vals = ss.get_offsets(ref_data,
@@ -109,15 +104,14 @@ if __name__=="__main__":
                 
                 print(f"\tOffsets calculated")
                 
-                # Save wave data to files specific to this loop
-                np.save(ref_data_file_i, ref_data)
-                np.save(chip_data_file_i, chip_data)
+                # # Save wave data to files specific to this loop
+                # np.save(ref_data_file_i, ref_data)
+                # np.save(chip_data_file_i, chip_data)
+                # print("\tWaveforms saved")
                 
-                # Just so we don't overflow memory; just for testing
+                # # So we don't overflow memory; just for testing
                 # os.remove(ref_data_file_i)
                 # os.remove(chip_data_file_i)
-
-                print("\tWaveforms saved")
 
                 # Save offset data to file specific to this loop
                 np.savetxt(offset_file_i, offset_vals)
@@ -155,4 +149,4 @@ if __name__=="__main__":
         print(f"\nAverage offset btwn edges: {mean_val}")
         print(f"Stdv of offset time: {std_val}")
 
-        hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40, stdv_cutoff=10)
+        hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40, stdv_cutoff=4)
