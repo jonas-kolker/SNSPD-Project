@@ -4,16 +4,8 @@ import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats import norm
 import time
-# import pandas as pd
 
-# Things to work on still:
-#    - Adjust horizontal (time) scale and range for acquisitions
-#    - Adjust str_length based on number of points in each acquisition
-#    - Something tells me exctract_waves_multi() will cause memory issues if N is too big (how big is that??)
-#    - Look into using sequence mode instead of normal mode for multi-trigger acquisitions (should be faster, but too big N may cause more problems than with normal mode)
-#    - While acquiring data, dynamically fit a gaussian to the histogram and only stop acquisition when the fit converges below a certain error
-
-# - - - - - - - - - - - - - - - - - - - Getting Jitter from Built-In Scope Histogram Function - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - -  Working with Built-In Scope Histogram Function (NOT TESTED) - - - - - - - - - - - - - - - - - - - 
 
 def setup_jitter_histogram(scope, ch1="C1", ch2="C2", polarity1="FALL", polarity2="FALL", measurement_slot="P1"):
     """
@@ -73,7 +65,7 @@ def extract_histogram_to_csv(scope, filename="C:\\LeCroy\\JitterHist.csv", measu
         print("Couldn't read back CSV automatically. Ensure the file is accessible.")
         return None
 
-# - - - - - - - - - - - - - - - - - - - - - - Getting Jitter from Raw Scope Waveform Data - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data - - - - - - - - - - - - - - - - - - - - - - 
 
 def check_number_of_points(scope, channel):
     """
@@ -103,7 +95,40 @@ def set_falling_edge_trigger(scope, channel, ref_thresh):
     scope.write(f"""VBS 'app.acquisition.trigger.edge.level = "{ref_thresh} V" ' """)
 
 
-def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
+def set_edge_qualified_trigger(scope, ref_channel="C1", ref_edge_slope="POS", ref_thresh=0,
+                               chip_channel="C2", chip_edge_slope="NEG", chip_thresh=0, hold_time=50e-9):
+    """
+    Set an edge qualified trigger btwn two channels. Trigger goes off only if the chip edge is detected, qualified by the reference edge
+    before it.
+
+    Parameters:
+        scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
+        ref_channel (str): Reference channel
+        ref_edge_slope (str): Falling vs rising edge for trigger
+        ref_thres (float): Threshold voltage
+        chip_channel (str): Chip signal channel
+        chip_edge_slope (str): Falling vs rising edge for trigger
+        chip_thres (float): Threshold voltage
+        hold_time (int): Chip falling edge must occur within this many seconds after ref rising edge
+
+    """
+    # Set the trigger to be edge qualified with the first source and qualifier sources set. No hold time limit
+    scope.write(f"TRSE TEQ,SR,{chip_channel},QL,{ref_channel},HT,TL,HV,{hold_time}")
+
+    # Set the trigger level for the reference and chip signals
+    scope.write(f"{ref_channel}:TRLV {ref_thresh}V")
+    scope.write(f"{chip_channel}:TRLV {chip_thresh}V")
+
+    # Set trigger slopes for signals
+    scope.write(f"{ref_channel}:TRSL {ref_edge_slope}")
+    scope.write(f"{chip_channel}:TRSL {chip_edge_slope}")
+
+
+def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9, 
+                       ref_channel="C1", chip_channel="C2",
+                       ref_edge_slope="POS", chip_edge_slope="NEG",
+                       str_length=1e5
+                       ):
     """
     Retrieves waveforms from both channels of the scope a single time after triggering on a falling edge on channel 1.
     
@@ -123,7 +148,8 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
     scope.write("CLEAR")
 
     # Set the trigger to falling edge on channel 1 below threshold voltage
-    set_falling_edge_trigger(scope, trig_channel, ref_thresh)
+    set_edge_qualified_trigger(scope, ref_channel, ref_edge_slope, ref_thresh,
+                               chip_channel, chip_edge_slope, chip_thresh)
 
     # Indicate single acquisition mode
     scope.set_trigger_mode("SINGLE") 
@@ -146,77 +172,26 @@ def extract_waves_once(scope, ref_thresh, trig_channel="C1", str_length=1e5):
     
     return ref_data, chip_data
 
-# Don't use this guy, use extract_waves_multi_seq instead
-def extract_waves_multi(scope, ref_thresh, N, trig_channel="C1"):
-    """
-    Retrieves waveforms from both channels of the scope N times (triggered by falling edge)
-    
-    Parameters:
-        scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
-        ref_thresh (float): The voltage level at which to trigger.
-        N (int): The number of triggered waveforms from each channel to acquire
-        trig_channel (str): The channel to set the trigger on (default is "C1").
 
-    Returns:
-        ref_waves_list (list of np.arrays): List of reference signal timestamps and amplitudes arrays.
-        chip_waves_list (list of np.arrays): List of chip signal timestamps and amplitudes arrays.
-    """
-
-    # Number of triggered acquisitions
-    n = 0
-
-    # Lists to hold result arrays
-    ref_waves_list = []
-    chip_waves_list = []
-    
-    # Stop any previous acquisitions and clear buffers
-    scope.set_trigger_mode("STOP")
-    scope.write("CLEAR")
-
-    # Set the trigger to falling edge on channel 1 below threshold voltage
-    set_falling_edge_trigger(scope, trig_channel, ref_thresh)
-    
-    # Indicate normal trigger mode
-    scope.set_trigger_mode("NORM")
-
-    # Acquire N triggered waveforms
-    while n < N:
-
-        # Wait until acquisition is complete
-        scope.wait()
-
-        # Get waveforms from both channels
-        time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=1000) # How big should str length be?
-        time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=1000)
-
-        # Check if time data from both channels match
-        if not np.array_equal(time_array_r, time_array_c):
-            raise ValueError("Time arrays from both channels do not match.")
-        
-        # Combine time and amplitude data into single arrays
-        ref_data = np.asarray([time_array_r, ref_array])
-        chip_data = np.asarray([time_array_c, chip_array])
-        
-        # Append data from that acquisition to lists
-        ref_waves_list.append(ref_data)
-        chip_waves_list.append(chip_data)
-
-        n += 1
-
-    scope.set_trigger_mode("STOP")
-    return ref_waves_list, chip_waves_list
-
-def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"):
+def extract_waves_multi_seq(scope, N, num_samples, 
+                            ref_channel="C1", ref_edge_slope="POS", ref_thresh=.08,
+                            chip_channel="C2", chip_edge_slope="NEG", chip_thresh=-.9, 
+                            hold_time=50e-9):
     """
     Retrieves waveforms from both channels of the scope N times (triggered by falling edge). Waveform
     segments are stored on scope until all acquisitions are complete, then they're transferred to the pc.
     
     Parameters:
         scope (MAUI.MAUI): An instance of the MAUI class for scope communication.
-        ref_thresh (float): The voltage level at which to trigger.
         N (int): The number of triggered waveforms from each channel to acquire. Max is 15,000
         num_samples (int): The number of samples to acquire per segment (ie the size of the segment)
-        trig_channel (str): The channel to set the trigger on (default is "C1").
+        ref_channel (str): Reference channel
+        ref_edge_slope (str): Falling vs rising edge for trigger
+        ref_thres (float): Threshold voltage
+        chip_channel (str): Chip signal channel
+        chip_edge_slope (str): Falling vs rising edge for trigger
+        chip_thres (float): Threshold voltage
+        hold_time (int): Chip falling edge must occur within this many seconds after ref rising edge
 
     Returns:
         ref_waves_list (list of np.arrays): List of reference signal timestamps and amplitudes arrays.
@@ -227,11 +202,14 @@ def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"
     scope.set_trigger_mode("STOP")
     scope.write("CLEAR")
 
-    # Set the trigger to falling edge on channel 1 below threshold voltage
-    set_falling_edge_trigger(scope, trig_channel, ref_thresh)
-
     # Set sequence mode to be on for N segments
     scope.write(F"SEQ ON, {N}, {num_samples}")
+
+    # Set the trigger to falling edge on channel 1 below threshold voltage
+    set_edge_qualified_trigger(scope, 
+                               ref_channel, ref_edge_slope, ref_thresh,
+                               chip_channel, chip_edge_slope, chip_thresh,
+                               hold_time)
 
     # Set trigger mode to single
     scope.set_trigger_mode("SINGLE")
@@ -253,16 +231,39 @@ def extract_waves_multi_seq(scope, ref_thresh, N, num_samples, trig_channel="C1"
     return ref_data, chip_data
 
 
-def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
+def chunk_data(data_array, num_samples):
     """
-    Calculates the timing offset between reference and chip falling edge detection signals.
+    Take an array full of data and seperate an list of smaller arrays with a specified number of samples in each
+
+    Parameters:
+        data_array (np.array): A 1D array of values
+        num_samples (int): How many values in each chunk
+    Returns:
+        chunks (list of np.arrays): A (j, num_samples) shaped array where j = len(data_array) // num_samples + (len(data_array) % num_samples)
+    
+    """
+    N = len(data_array)
+    indices = np.arange(num_samples, N, num_samples)
+    chunks = np.array_split(data_array, indices)
+
+    return chunks 
+
+
+def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mismatch_handling=False, num_samples=0):
+    """
+    Calculates the timing offset between reference and chip falling edge detection signals. If a different number of rising and falling 
+    edges are detected, it will either throw a ValueError or break the combined sequence of waveforms into acquisition windows and analyze 
+    the edges in each individually. Only specific acquisitions with mismatches will be ignored, rather than the whole file. This option allows 
+    you to analyze data that would otherwise be discarded, but means processing will take much longer.
     
     Parameters:
         ref_array (np.array): Array of reference signal data. First axis should be time, second axis signal amplitude.
         chip_array (np.array): Array of chip signal data. First axis should be time, second axis signal amplitude.
-        ref_threshold (flaot): Threshold value reference signal below which we consider detection events
-        chip_threshold (flaot): Threshold value chip signal below which we consider detection events
+        ref_threshold (float): Threshold value reference signal below which we consider detection events
+        chip_threshold (float): Threshold value chip signal below which we consider detection events
         clip (int): Number of initial samples to be ignored 
+        mismatch_handling (bool): If different num of edges counted between channels, either throw an error (if False) or take time to iterate over each individual acquisition (if True).
+        num_samples (int): The number of samples per acquisition window. Only needed when mismatch_handling == True
     Returns:
         offset_vals (np.array): Array of time differences between falling edge events in chip and reference
     """
@@ -273,7 +274,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
 
     # Check if time arrays match
     if not np.array_equal(ref_data[0], chip_data[0]):
-        raise ValueError("Time arrays from both channels do not match.")
+        print("ERROR: Time arrays from both channels do not match.\n")
     
     time_array = np.array(ref_data)[0][clip:]  
     
@@ -282,32 +283,79 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0):
     ref_array = ref_array[:min_length]
     chip_array = chip_array[:min_length]
 
-    # Get threshold values for both signals below which we consider detection events
-    # ref_threshold = (np.max(ref_array) + np.min(ref_array)) / 2
-    # chip_threshold = (np.max(chip_array) + np.min(chip_array)) / 2
-
-    # Find indices where signals cross the threshold (falling edge detection)
-    r_above = ref_array > ref_threshold
+    # Find indices where signals cross the threshold (rising edge detection for ref)
+    r_below = ref_array < ref_threshold
+    ref_crossings_indices  = np.where( (r_below[:-1]) & (~r_below[1:]) )[0]
+    
+    # Find indices where signals cross the threshold (falling edge detection for chip)
     c_above = chip_array > chip_threshold
-    ref_crossings_indices  = np.where( (r_above[:-1]) & (~r_above[1:]) )[0]
     chip_crossings_indices = np.where( (c_above[:-1]) & (~c_above[1:]) )[0]
 
-    # print(ref_crossings_indices)
-    # print(chip_crossings_indices)
-    # print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
-    # print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
-
     # Check that each channel has corresponding falling edge events
+    print(f"\tNumber of reference threshold crossings: {len(ref_crossings_indices)}")
+    print(f"\tNumber of chip threshold crossings: {len(chip_crossings_indices)}")
+    
+    # - - - - - - - - - -  - - -  If the number of crossings in each channel don't match - - - - - - - - - - - - - - -  - - - -  - 
     if len(ref_crossings_indices) != len(chip_crossings_indices):
-        print(f"Number of reference threshold crossings: {len(ref_crossings_indices)}")
-        print(f"Number of chip threshold crossings: {len(chip_crossings_indices)}")
-        raise ValueError("Mismatch in number of detection events between reference and chip signals.")
+        
+        if mismatch_handling == False:
+            raise ValueError("Mismatch in number of detection events between reference and chip signals.")
+        
+        elif mismatch_handling == True:
+            
+            if num_samples == 0:
+                print("ERROR: Need to specify the number of samples per segment\n")
 
-    ref_crossing_times = time_array[ref_crossings_indices]
-    chip_crossing_times = time_array[chip_crossings_indices]
-    offset_vals = chip_crossing_times - ref_crossing_times
+            # Confirm that the total number of datapoints is min_length=N*num_samples (where N is number of acquisitions per sequence)
+            # print(f"\tTotal # of samples: {min_length}\n\tSamples per acquisition: {num_samples}")
+            print(f"\tHandling mismatches segment by segment")
+            # assert min_length % num_samples == 0, "Total samples in sequence doesn't divide by num_samples per acquisition"
+            # N = min_length/num_samples
+            
+            # Break the data into chunks corresponding to each individual sequence segment
+            ref_waveforms = chunk_data(ref_array, num_samples)
+            chip_waveforms = chunk_data(chip_array, num_samples)
+            waveform_time_vals = chunk_data(time_array, num_samples)
+            offset_vals = []
 
-    return offset_vals
+            # Try to get offset value for each individual acquisition segment. If there's a mismatch or error, discard that segment
+            for i in range(len(ref_waveforms)):
+                seg_ref_array = ref_waveforms[i]
+                seg_chip_array = chip_waveforms[i]
+                seg_time_array = waveform_time_vals[i]
+
+                # For each segment, find indices of threshold crossing (rising edge for ref)
+                seg_r_below = seg_ref_array < ref_threshold
+                seg_ref_crossing_index  = np.where( (seg_r_below[:-1]) & (~seg_r_below[1:]) )[0]
+
+                # For each segment, find indices of threshold crossing (falling edge for chip)
+                seg_c_above = seg_chip_array > chip_threshold
+                seg_chip_crossing_index = np.where( (seg_c_above[:-1]) & (~seg_c_above[1:]) )[0]
+
+                # There should be the same number of crossings in each channel, and that number should be 1 per segment
+                seg_num_ref_crossings = len(seg_ref_crossing_index)
+                seg_num_chip_crossings = len(seg_chip_crossing_index)
+                if (seg_num_chip_crossings != seg_num_ref_crossings) or (seg_num_chip_crossings != 1) or (seg_num_ref_crossings != 1):
+                    pass
+                
+                # If there's one crossing per channel in this segment, proceed
+                else:
+                    seg_ref_crossing_time = seg_time_array[seg_ref_crossing_index]
+                    seg_chip_crossing_time = seg_time_array[seg_chip_crossing_index]
+                    
+                    offset_vals.append(seg_chip_crossing_time - seg_ref_crossing_time)
+                    # print(seg_ref_crossing_time-seg_chip_crossing_time)
+            
+            return np.asarray(offset_vals)
+    # - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - 
+    
+    # If the number of crossings in each channel match for the entire sequence
+    else:
+        ref_crossing_times = time_array[ref_crossings_indices]
+        chip_crossing_times = time_array[chip_crossings_indices]
+        offset_vals = chip_crossing_times - ref_crossing_times
+
+        return offset_vals
 
 
 def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutoff=0):
@@ -334,7 +382,6 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         mask = np.ones_like(offset_vals) == 1
     
     filtered_vals = offset_vals[mask]
-
     hist, bin_edges = np.histogram(filtered_vals, bins=hist_bins)
     
     A = np.max(hist)
@@ -349,39 +396,24 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         # counts, NOT a probability distribution
         return amp * np.exp(-0.5 * ((x - mu) / sigma)**2) #* bin_width
 
-    # # Fit a gaussian to the histogram data
-    # popt, pcov = curve_fit(gaussian, 
-    #                        bin_centers, 
-    #                        hist, 
-    #                        p0=[mean, stdv])
-    
-    
-    # Errors associated with the fitted parameters
-    # err = np.sqrt(np.diag(pcov))
-
-    # # Fitted values
-    # mu = popt[1]
-    # sigma = popt[2]
-    # sigma_err = err[2]
-
-
     if plot:
         # Plot histogram and fitted gaussian
         plt.figure(figsize=(8,5))
-        plt.hist(filtered_vals)
+        plt.hist(filtered_vals, bins=hist_bins)
         # plt.xlim(mean - stdv_cutoff*stdv, mean + stdv_cutoff*stdv_cutoff)
         
-        x_fit = np.linspace(min(filtered_vals), max(filtered_vals), 1000)
+        x_fit = np.linspace(min(bin_edges), max(bin_edges), 1000)
         y_fit = gaussian(x_fit, A, mean, stdv)
         plt.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
         
         plt.xlabel('Time Offset (s)')
         plt.ylabel('Counts')
-        plt.title('Histogram of Time Offsets with Fitted gaussian')
+        plt.title('Histogram of Time Offsets')
         plt.legend()
         plt.show()
 
-    return hist, bin_edges, popt, err
+    return hist, bin_edges
+
 
 def calculate_mean_and_std(offset_value_list):
 
