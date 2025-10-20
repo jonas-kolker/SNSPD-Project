@@ -10,7 +10,7 @@ import time
 import numpy as np
 from Arduino_SNSPD.classes.Snspd_V2_TEST import Snspd
 from Scope_Interfacing_Code.MAUI import MAUI
-import Scope_Interfacing_Code.scope_script_MDP as ss
+import Scope_Interfacing_Code.scope_stuff_MDP as ss
 import shutil
 import matplotlib.pyplot as plt
 import os, gc
@@ -44,16 +44,16 @@ def sweep_values(param_name):
     return ranges.get(param_name, [0])
 
 def scope_acq(param_name, sweep_val, 
-              num_samples = int(1e4), N = 200, num_loops = 10, 
+              num_samples = int(1e4), N = 20, num_loops = 20, 
               div_time = 50e-9, hold_time = 900e-9,
               ref_channel="C1", chip_channel="C2",
               ref_thresh = .08, chip_thresh = 0.00, 
               delete_prev_data = True,
-              std_cutoff=5):   
+              std_cutoff=0):   
     
     """
-    Acquires waveform data from the scope triggered by the rising edge of a reference signal followed by the falling edge of a second (chip) signal.
-    Waveform data is acquired in sequence bursts - the number of sequences given by num_loops. A sequence will contain N specific waveforms, and each 
+    Acquires waveform data from the scope, triggered by the rising edge of a reference signal followed by the falling edge of a second (chip) signal.
+    Waveform data is acquired in sequence bursts - the number of sequences given by num_loops. A sequence will contain N waveforms, and each 
     waveform is made up of num_samples number of datapoints. Sequence data will be saved in folders corresponding to the value of the chip parameter 
     of interest at that time.
 
@@ -160,7 +160,6 @@ def scope_acq(param_name, sweep_val,
                                     clip=clip,
                                     mismatch_handling=True,
                                     num_samples=num_samples)
-                
                 print(f"\tOffsets calculated")
                 
                 # Save wave data to files specific to this loop
@@ -170,7 +169,6 @@ def scope_acq(param_name, sweep_val,
                 # So we don't overflow memory; just for testing
                 # os.remove(ref_data_file_i)
                 # os.remove(chip_data_file_i)
-
                 print("\tWaveforms saved")
 
                 # Save offset data to file specific to this loop

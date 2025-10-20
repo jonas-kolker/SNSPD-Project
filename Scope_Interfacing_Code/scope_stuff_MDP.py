@@ -65,7 +65,7 @@ def extract_histogram_to_csv(scope, filename="C:\\LeCroy\\JitterHist.csv", measu
         print("Couldn't read back CSV automatically. Ensure the file is accessible.")
         return None
 
-# - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data (USED IN MAIN.PY) - - - - - - - - - - - - - - - - - - - - - - 
 
 def check_number_of_points(scope, channel):
     """

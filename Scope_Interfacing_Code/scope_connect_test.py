@@ -1,5 +1,5 @@
 import win32com.client #imports the pywin32 library
-import scope_script_MDP as ss
+import scope_stuff_MDP as ss
 from MAUI import MAUI
 import matplotlib.pyplot as plt
 import shutil

@@ -37,14 +37,16 @@ The `main.py` file uses functions from `scope_script_MDP.py` to outline a protoc
 ## Important Notes about Acquisition with Scope
 The scope supports a variety of modes for acquiring data. In our case, where we want to acquire many waveforms and send all of them to the PC, the best option is sequence mode. With this you set a number of waveform segments to acquire (when they're triggered) and the scope stores them all in local memory until all the data has been collected. Afterwards you can extract all the waveforms together in one numpy array. 
 
-### Samples per acquisition 
-The maximum number of samples acquired in each acquisition segment can be set manually. However the scope will convert this to the nearest lowest acceptable value. The specific maximum allowed sample value is limited by memory constraints and internal settings. 
+With this in mind, here are some particular scope-related quirks we've come across that are worth flagging.
+
+### Setting samples per acquisition 
+The maximum number of samples acquired in each acquisition segment can be set manually. However the scope will convert this to the nearest (lower) acceptable value. The specific maximum allowed sample value is limited by memory constraints and internal settings. 
 
 For example, if you set the number of acquisitions per sequence to be `N=10000`, the allowed maximum number of samples per acquisition will likely be much lower than with a smaller number of acquisitions.
 
 You can find the true number of samples per acquisition from the output of `MAUI().query("""VBS? 'return=app.acquisition.horizontal.maxsamples'""")` using the class from the `MAUI.py` file.
 
-The time scaling for running sequence mode depends on a number of factors. However a general sense can be gained from the plot below. Each acquisition was taken over a 10 $\mu\text{s}$ window, and 100 acquisitions were taken:
+The time it takes to get data in sequence mode depends on a number of factors. However a general sense can be gained from the plot below. Each acquisition was taken over a 10 $\mu\text{s}$ window, and 100 acquisitions were taken per sequence:
 
 ![Time scaling vs sample acquisition](Figures/time_scaling_log.png)
 
@@ -52,8 +54,22 @@ Note: This only accounts for the time to extract data from the scope as a numpy 
 
 Another important metric to keep in mind with regards to samples per sequence is memory. We found that, when storing 100 sequences of 10,000 samples as a CSV file, it was around 50 KB of data.
 
-### First acquisition segment irregularity
-When collecting waveform data in sequence mode, we noticed that the first acquisition always has an unusual spike in the beginning. 
+### First segment acquisition irregularity
+When collecting waveform data in sequence mode, we noticed that the first acquisition always has unusual spiking behavior in the beginning. The sequence below shows this:
 
-![AWG and chip signals from one large sequence]()
+![AWG and chip signals from one large sequence](Figures/sequence_signals.png)
 
+This spiking obviously messes with our ability to process the data. For this reason, we have a parameter in our `get_offsets()` function that species how many samples to clip out from the beginning. We set this by default to `num_samples`, which is the number of samples per individual waveform acquisition. This removes the anomalous behavior from the beginning. 
+
+### Extreme Outlier Data
+As you may have noticed above, the AWG will sometimes skip or bunch pulses together in a way that leads to very uncharacteristic outlier data. This can cause plots that look like this:
+
+![Data with extreme outliers](Figures/hist_without_stdv_cutoff_example.png)
+
+The outlier data seen on the far right is present in basically every measurement we do. We're not sure where it comes from, but it messes with our FWHM calculation.
+
+If we take the same dataset, but then omit any data more than 4 standard deviations away from the mean, we get the following plot:
+
+![Data without extreme outliers](Figures/hist_with_stdv_cutoff_example.png)
+
+The counts have changed between the two figures because the bins have been reconfigured. As you can see, the FWHM in the latter examples is much more characteristic of the normal distribution.
