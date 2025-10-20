@@ -35,7 +35,7 @@ The `scope_script_MDP.py` file utilizes the class defined in `MAUI.py` for highe
 ## Sequence Acquisition Details
 The scope supports a variety of modes for acquiring data. In our case, where we want to acquire many waveforms and send all of them to the PC, the best option is sequence mode. With this you set a number of waveform sequences to acquire and the scope stores them all in local memory until all the data has been collected. Afterwards you can extract all the waveforms together in one numpy array. 
 
-An alternative is normal mode, which collects multiple waveforms won't store multiple acquisitions locally. This is discouraged by the manual, as it will dramatically increase the runtime.
+An alternative is normal mode, which collects multiple waveforms won't store multiple acquisitions locally. This is discouraged by the manual and will dramatically increase the runtime.
 
 ### Samples per sequence 
 The max number of samples acquired in each sequence can be set manually. However the scope will convert this to the nearest lowest acceptable value. The specific maximum allowed sample value is limited by memory constraints and internal settings.
@@ -45,4 +45,8 @@ You can find the true number of samples per acquisition from the output of `MAUI
 The time scaling for sequence mode depends on a number of factors. However a general sense can be gained from the plot below. Each acquisition was taken over a 10 $\mu\text{s}$ window, and 100 acquisitions were taken:
 
 ![Time scaling vs sample acquisition](../time_scaling_log.png)
+
+Note: This only accounts for the time to extract data from the scope as a numpy array. It does NOT include the time it takes to store the wave data to the PC
+
+Another important metric to keep in mind with regards to samples per sequence is memory. We found that, when storing 100 sequences of 10,000 samples as a CSV file, it was around 50 KB of data.
 
