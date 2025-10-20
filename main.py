@@ -142,6 +142,7 @@ def scope_acq(param_name, sweep_val,
                                                         chip_channel=chip_channel, chip_edge_slope="NEG", chip_thresh=chip_thresh, 
                                                         hold_time = hold_time)
             print(f"\tData acquired")
+            
             # Add approprite offset to time data
             ref_data[0] = ref_data[0] + time_this_loop
             chip_data[0] = chip_data[0] + time_this_loop
