@@ -15,7 +15,7 @@ if __name__=="__main__":
     div_time = 50e-9 # There are 10 divisons per acquisition
     
     hold_time = 900e-9 # Chip falling edge must occur within this many seconds after ref rising edge.
-    
+
     num_loops = 500 # Number of sequences 
 
     # Voltage thresholds for reference and chip signals
@@ -149,4 +149,4 @@ if __name__=="__main__":
         print(f"\nAverage offset btwn edges: {mean_val}")
         print(f"Stdv of offset time: {std_val}")
 
-        hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40, stdv_cutoff=4)
+        fig, hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40, stdv_cutoff=4)

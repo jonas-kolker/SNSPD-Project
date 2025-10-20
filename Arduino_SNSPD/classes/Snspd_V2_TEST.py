@@ -118,6 +118,10 @@ class Snspd(object):
             from_ard = self.ser.read(40)
             print("Received:                              ", from_ard)
             
+            if write_word[1:] == from_ard:
+                print("Succesful connection")
+            else:
+                print("Sent/received don't match")            
             
             
         else:
