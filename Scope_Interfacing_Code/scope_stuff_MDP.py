@@ -65,7 +65,7 @@ def extract_histogram_to_csv(scope, filename="C:\\LeCroy\\JitterHist.csv", measu
         print("Couldn't read back CSV automatically. Ensure the file is accessible.")
         return None
 
-# - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data (USED IN MAIN.PY) - - - - - - - - - - - - - - - - - - - - - - 
 
 def check_number_of_points(scope, channel):
     """
@@ -254,7 +254,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
     Calculates the timing offset between reference and chip falling edge detection signals. If a different number of rising and falling 
     edges are detected, it will either throw a ValueError or break the combined sequence of waveforms into acquisition windows and analyze 
     the edges in each individually. Only specific acquisitions with mismatches will be ignored, rather than the whole file. This option allows 
-    you to analyze data that would otherwise be discarded, but means processing will take much longer.
+    you to analyze data that would otherwise be discarded, but means processing will take longer.
     
     Parameters:
         ref_array (np.array): Array of reference signal data. First axis should be time, second axis signal amplitude.
@@ -264,6 +264,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
         clip (int): Number of initial samples to be ignored 
         mismatch_handling (bool): If different num of edges counted between channels, either throw an error (if False) or take time to iterate over each individual acquisition (if True).
         num_samples (int): The number of samples per acquisition window. Only needed when mismatch_handling == True
+    
     Returns:
         offset_vals (np.array): Array of time differences between falling edge events in chip and reference
     """
@@ -318,6 +319,24 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
             waveform_time_vals = chunk_data(time_array, num_samples)
             offset_vals = []
 
+            # - - - - - - - - -- - - - - - - - WORK IN PROGRESS - - - - - - - - - - - - - - - - - 
+            # # Handle all uniformly sized data
+            # ref_waveforms_array = np.array(ref_waveforms[:-1])
+            # chip_waveforms_array = np.array(chip_waveforms[:-1])
+            # waveform_time_vals = np.array(waveform_time_vals[:-1])
+
+            # # Get smaller, final segment data
+            # ref_waveforms_last = np.array(ref_waveforms[-1])
+            # chip_waveforms_last = np.array(chip_waveforms[-1])
+            # waveform_time_vals_last = np.array(waveform_time_vals[-1])
+
+            # ref_below  = ref_waveforms_array < ref_threshold
+            # ref_crossing_
+            
+            #chip_above = chip_waveforms_array < chip_threshold
+            # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  
+
+
             # Try to get offset value for each individual acquisition segment. If there's a mismatch or error, discard that segment
             for i in range(len(ref_waveforms)):
                 seg_ref_array = ref_waveforms[i]
@@ -332,7 +351,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
                 seg_c_above = seg_chip_array > chip_threshold
                 seg_chip_crossing_index = np.where( (seg_c_above[:-1]) & (~seg_c_above[1:]) )[0]
 
-                # There should be the same number of crossings in each channel, and that number should be 1 per segment
+                # There should be the same number of crossings in each channel, and that number should be 1 per individaul segment
                 seg_num_ref_crossings = len(seg_ref_crossing_index)
                 seg_num_chip_crossings = len(seg_chip_crossing_index)
                 if (seg_num_chip_crossings != seg_num_ref_crossings) or (seg_num_chip_crossings != 1) or (seg_num_ref_crossings != 1):
@@ -358,7 +377,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
         return offset_vals
 
 
-def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutoff=0):
+def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cutoff=0):
     """
     Create a histogram of the offset values and fit a gaussian to it
 
@@ -369,10 +388,10 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         stdv_cutoff (int): Filters out data more than some this many sigmas from the mean. Set to 0 for no cutoff.
     
     Returns:
+        fig (plt.Figure): Pyplot figure object that can be saved/displayed
         hist (np.array): Array of histogram bin counts
         bin_edges (np.array): Array of histogram bin edges 
-        popt (np.array): Array of the optimal values for the fitted parameters [A, mu, sigma] (sigma is jitter in this case!!)
-        err (np.array): Array of the standard errors of the fitted parameters [A_err, mu_err, sigma_err]
+        
         
     """
     # Omit outlier data for prettier histogram if cutoff not set to 0
@@ -396,23 +415,25 @@ def make_histogram_and_gaussian(offset_vals, plot=True, hist_bins=30, stdv_cutof
         # counts, NOT a probability distribution
         return amp * np.exp(-0.5 * ((x - mu) / sigma)**2) #* bin_width
 
+    # Create histogram and fitted gaussian
+    fig, ax = plt.subplots(figsize=(8,5))
+    ax.hist(filtered_vals, bins=hist_bins)
+    # plt.xlim(mean - stdv_cutoff*stdv, mean + stdv_cutoff*stdv_cutoff)
+    
+    x_fit = np.linspace(min(bin_edges), max(bin_edges), 1000)
+    y_fit = gaussian(x_fit, A, mean, stdv)
+    ax.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
+    
+    ax.set_xlabel('Time Offset (s)')
+    ax.set_ylabel('Counts')
+    ax.set_title('Histogram of Time Offsets')
+    ax.legend()
+    
     if plot:
-        # Plot histogram and fitted gaussian
-        plt.figure(figsize=(8,5))
-        plt.hist(filtered_vals, bins=hist_bins)
-        # plt.xlim(mean - stdv_cutoff*stdv, mean + stdv_cutoff*stdv_cutoff)
         
-        x_fit = np.linspace(min(bin_edges), max(bin_edges), 1000)
-        y_fit = gaussian(x_fit, A, mean, stdv)
-        plt.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
-        
-        plt.xlabel('Time Offset (s)')
-        plt.ylabel('Counts')
-        plt.title('Histogram of Time Offsets')
-        plt.legend()
-        plt.show()
+        plt.show() 
 
-    return hist, bin_edges
+    return fig, hist, bin_edges
 
 
 def calculate_mean_and_std(offset_value_list):
