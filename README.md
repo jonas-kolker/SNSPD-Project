@@ -63,25 +63,25 @@ Here we address some key points to address and be aware of moving forward:
 
 
 ### Offset Calculation Inefficiency
-An issue we only truly noticed later on in our project timeline was an issue with our `get_offsets()` function in `scope_stuff_MDP.py`. What the function does is take the sequences of waveforms for both the reference and chip signals and attempts to explicitly calculates the number of time rising/falling edges go past the thresholds set for the reference/chip signals, respectively. If this number is the same for both, then things proceed very smoothly and things work as planned.
+An issue we only truly noticed late on in our project timeline was with our `get_offsets()` function. What the function does is take sequences of waveforms for both the reference and chip signals and attempt to explicitly calculate the number of time rising/falling edges for the reference/chip signals, respectively. If this number is the same for both, then things proceed very smoothly and everything works as planned.
 
-However, what happens the vast majority of the time is that there will be a mismatch. In this case, you have two options depending on how you set the `mismatch_handling` parameter:
+However, what happens the vast majority of the time is that there will be a mismatch. In such a case, you have two options depending on how you set the `mismatch_handling` parameter:
 
-- If `mismatch_handling == False`, the function will simply return a `ValueError` and, at least in `main.py`, the PC will just try to get new data and hope for the best
+- If `mismatch_handling == False`, the function will simply return a `ValueError` and, at least in `main.py`, the PC will simply delete that sequence and try to get new data for that loop
 
 - If `mismatch_handling == True`, the function will attempt to take the waveform sequences and break them into their individual acquisition windows. It will then iterate through all `N` windows and try to find edge delays between channels for each.
 
 The second option is generally preferable. It means we can still get data from a sequence we'd otherwise discard. And the likelihood of edge crossing events corresponding perfectly between channels is low.
 
-However, a common problem arises where multiple detection events are identified where they shouldn't be. For example: 
+However, a very common problem arises where multiple detection events are identified where they shouldn't be. For example: 
 
 ![Edge detection mismatch](Figures/edge_mismatch_example.png)
 
 In the figure above, the code detected 2 events for the reference signal, but only one for the chip. In this case, the function would simply move past this portion of the sequence and go on to the next. 
 
-**_This can lead to the majority of data being discarded_**
+**_This can lead to the majority of data being discarded!!_**
 
-The frequency and severity of this issue may vary, but it's one of the key issues to address moving forward.
+The frequency and severity of this issue varys depending on the scope settings, but it's one of the key issues to address moving forward.
 
 ### Setting samples per acquisition 
 The maximum number of samples acquired in each acquisition segment can be set manually in `main.py` with the `num_samples` parameter. However the scope will convert this to the nearest acceptable value. The specific allowed sample values will be limited by memory constraints and internal settings based on other parameters you may set. 
