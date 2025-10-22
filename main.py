@@ -97,6 +97,8 @@ def sweep_values(param_name):
     }
     return ranges.get(param_name, [0])
 
+save_dir = "C:\\LeCroy\\ScopeData"
+
 def clear_folder(folder_path):
     """
     Deletes all files and folders inside `folder_path`, but leaves the folder itself intact.
@@ -321,7 +323,7 @@ if __name__ == "__main__":
     N = 1000 # Number of acquisitions per sequence
     num_loops = 1 # Number of sequences 
     
-    div_time = 5e-9 # There are 10 divisons per acquisition
+    # div_time = 5e-9 # There are 10 divisons per acquisition
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
     deskew_time = 30e-9 # Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
     
@@ -330,6 +332,9 @@ if __name__ == "__main__":
 
     jitter_list = []
     param_val_list = []
+
+    # Clear all previous data in save_dir
+    clear_folder(save_dir)
 
     with Snspd(arduino_port) as snspd:
         print("\nStarting parameter sweep")
@@ -360,4 +365,5 @@ if __name__ == "__main__":
     plt.plot(param_val_list, jitter_list)
     plt.xlabel("DCcompensate vals")
     plt.ylabel("Delay Stdv")
+    plt.title("Delay Standard Deviation (Jitter) vs DCcompensate Params")
     plt.show()
