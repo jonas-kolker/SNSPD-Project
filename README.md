@@ -61,6 +61,8 @@ When collecting waveform data in sequence mode, we noticed that the first acquis
 
 This spiking obviously messes with our ability to process the data. For this reason, we have a parameter in our `get_offsets()` function that species how many samples to clip out from the beginning. We set this by default to `num_samples`, which is the number of samples per individual waveform acquisition. This removes the anomalous behavior from the beginning. 
 
+The scope trigger occurs right on a rising or falling edge, the front end of the oscilloscope and the probe can’t respond instantly so it overshoots and keeps ringing for a bit until it stabilizes.
+
 ### Extreme Outlier Data
 As you may have noticed above, the AWG will sometimes skip or bunch pulses together in a way that leads to very uncharacteristic outlier data. This can cause plots that look like this:
 
@@ -73,3 +75,32 @@ If we take the same dataset, but then omit any data more than 4 standard deviati
 ![Data without extreme outliers](Figures/hist_with_stdv_cutoff_example.png)
 
 The counts have changed between the two figures because the bins have been reconfigured. As you can see, the FWHM in the latter examples is much more characteristic of the normal distribution.
+
+### How scope data is saved (from main.py)
+Base dir: C:\LeCroy\ScopeData
+For each sweep value, three folders are recreated:
+
+1. ReferenceWaveforms_{param_name}{sweep_val} in which multiple  ref_data_{loop_val}.npy files are stored for each loop(num_loop)
+2. ChipWaveforms_{param_name}{sweep_val} --> chip_data_{loop_val}.npy
+3. OffsetVals_{param_name}{sweep_val} --> offset_vals_{param}{val}_{loop_val}.txt
+
+A combined offset_val, that is combining all the files in OffsetVals_{param_name}{sweep_val} is written as: offset_values_all_{param_name}{sweep_val}.txt into Base_dir
+
+A combined histogram plot of offset values is written as: hist_{param_name}{sweep_val}.png into Base_dir
+
+
+We have saved the data this way because as we increase the N value, the scope is missing out on a few detections. Hence, to reduce such events by using a lower N, we have done it multiple times(num_loops).
+
+### Overview main.py
+
+Running this file sweeps a chip parameter, triggers the MAUI scope, pulls burst sequences, computes ref(AWG) vs chip timing offsets, saves raw waveforms and offsets, and exports a histogram.
+
+Here, 
+sweep_ranges(param_name) returns numeric sweep values with adjustable step.
+
+scope_acq(param_name, sweep_val, num_samples, N, num_loops, div_time, hold_time, 
+          ref_channel, chip_channel, ref_thresh, chip_thresh, delete_prev_data, std_cutoff)
+
+Collects num_loops sequences of N waveforms with num_samples points, saves .npy files for ref/chip and offset text files, then makes hist_*.png.
+
+![main.py overview](Figures/experiment_flowchart.jpeg)
