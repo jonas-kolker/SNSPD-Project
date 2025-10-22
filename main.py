@@ -16,11 +16,65 @@ import matplotlib.pyplot as plt
 import os, gc
     
 def load_com_ports(filename):
+    """
+    Reads a simple text file containing connection information (e.g., COM ports,
+    instrument addresses) and returns each non-empty line as an entry.
+
+    Parameters:
+        filename (str): Path to a plain-text file. Each line should contain one
+            value (e.g., the Arduino COM port on the first line and the SMU
+            address on the second line).
+
+    Returns:
+        list[str]: A list of strings corresponding to each line in the file,
+        in order.
+
+    Notes:
+        - The function does no validation or stripping beyond splitting lines.
+        - Will raise FileNotFoundError if the file does not exist.
+    """    
     with open(filename, 'r') as f:
         return f.read().splitlines()
 
 #Ranges for parameters(snspd registers)
 def sweep_values(param_name):
+    """
+    Maps a given SNSPD register/parameter name to the iterable of values that
+    will be swept during the experiment.
+
+    Parameters:
+        param_name (str): The name of the parameter to sweep. Must be one of
+            the keys defined in the internal 'ranges' mapping below.
+
+    Returns:
+        iterable: A range, list, or other iterable of values to sweep over for
+        the specified parameter. If the name is not recognized, returns [0].
+
+    Defined sweeps:
+        - DCcompensate
+        - DFBamp        
+        - DSNSPD        
+        - DAQSW         
+        - VRL           
+        - Dbias_NMOS    
+        - DBias_internal
+        - Dbias_fb_amp  
+        - Dbias_comp    
+        - Dbias_PMOS    
+        - Dbias_ampNMOS 
+        - Ddelay        
+        - Dcomp         
+        - Analoga       
+        - Dbias_ampPMOS 
+        - DCL           
+        - Dbias_ampn1   
+        - Dbias_ampn2   
+
+    Notes:
+        - The return type varies by parameter (range vs list), but all are
+          iterable and suitable for 'for' loops.
+    """
+
     ranges = {
         "DCcompensate": range(0, 8, 2),
         "DFBamp": range(1, 16, 4),
@@ -147,7 +201,8 @@ def scope_acq(param_name, sweep_val,
             ref_data[0] = ref_data[0] + time_this_loop
             chip_data[0] = chip_data[0] + time_this_loop
 
-            # When we get a sequence of waveforms, the first one always seems to have some weird voltage spike. We specify here that all the samples from this first acquisition should be disregarded
+            # When we get a sequence of waveforms, the first one always seems to have some weird voltage spike.
+            # We specify here that all the samples from this first acquisition should be disregarded
             clip = num_samples
 
             # See if data works for calculating edge offsets
@@ -250,6 +305,7 @@ if __name__ == "__main__":
 
         for param in parameters.keys():
             print(f"Sweeping parameter: {param}")
+            per_value_times = []      # seconds for each sweep value
 
             for val in sweep_values(param):
                 if param == "DCcompensate":
@@ -259,7 +315,21 @@ if __name__ == "__main__":
                     snspd.set_register(**registers)
                     snspd.TX_reg()
                     print(f"Set {param} = {val}")
-
+                    t0 = time.time()
                     scope_acq(param, val)
+                    elapsed = time.time() - t0
+                    per_value_times.append(elapsed)
+
+            # --- per-parameter summary ---
+            num_points = len(per_value_times)
+            total_time_s = sum(per_value_times) if num_points else 0.0
+            mean_time_s = (total_time_s / num_points) if num_points else 0.0
+
+            print(
+                f"\nSummary for {param}:\n"
+                f"  Sweep points:        {num_points}\n"
+                f"  Total time:          {total_time_s:.2f} s ({total_time_s/60:.2f} min)\n"
+                f"  Mean per value:      {mean_time_s:.2f} s\n"
+            )
 
         print("\nSweep completed successfully!")
