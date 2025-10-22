@@ -76,7 +76,7 @@ def sweep_values(param_name):
     """
 
     ranges = {
-        "DCcompensate": range(0, 8, 1),
+        "DCcompensate": range(0, 8, 2),
         "DFBamp": range(1, 16, 4),
         "DSNSPD": range(0, 128, 16),
         "DAQSW": range(0, 128, 16),
@@ -96,8 +96,6 @@ def sweep_values(param_name):
         "Dbias_ampn2": range(0, 128,16)
     }
     return ranges.get(param_name, [0])
-
-save_dir = "C:\\LeCroy\\ScopeData"
 
 def clear_folder(folder_path):
     """
@@ -157,8 +155,9 @@ def scope_acq(param_name, sweep_val,
     
     """
     
-    # Make appropriate (sub)directories for storing data from each loop
-    save_dir = "C:\\LeCroy\\ScopeData"
+    # Make appropriate subdirectories for storing data from each loop
+    # 
+    # save_dir = "C:\\LeCroy\\ScopeData"
     save_dir_ref = save_dir + f"\\ReferenceWaveforms_{param_name}{sweep_val}"
     save_dir_chip = save_dir + f"\\ChipWaveforms_{param_name}{sweep_val}"
     # save_hist = save_dir + f"\\Histograms_{param_name}{sweep_val}"
@@ -200,7 +199,7 @@ def scope_acq(param_name, sweep_val,
             time_this_loop = N*10*div_time*loop # Number of waveforms * 10 time divisions per waveform * loop number
 
             # Get N waveform sequences from both channels 
-            ref_data, chip_data = ss.extract_waves_multi_seq(c, 
+            ref_data, chip_data, real_num_samples = ss.extract_waves_multi_seq(c, 
                                                         N=N,
                                                         num_samples=num_samples, 
                                                         ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
@@ -224,7 +223,7 @@ def scope_acq(param_name, sweep_val,
                                     chip_threshold=chip_thresh,
                                     clip=clip,
                                     mismatch_handling=True,
-                                    num_samples=num_samples)
+                                    num_samples=real_num_samples)
                 
                 print(f"\tOffsets calculated")
                 
@@ -267,14 +266,13 @@ def scope_acq(param_name, sweep_val,
         os.rmdir(save_dir_offset)
         
         offset_vals_all = np.loadtxt(combined_offset_file)
-
-        mean_val, std_val = ss.calculate_mean_and_std(offset_vals_all)
+        print(f"\nTotal # of offsets for this measurement: {len(offset_vals_all)}")
         
         # print(f"\nAverage offset btwn edges: {mean_val}")
         # print(f"Stdv of offset time: {std_val}")
 
         fig, hist, bin_edges, stdv_val = ss.make_histogram_and_gaussian(offset_vals_all, 
-                                                                         hist_bins=40, 
+                                                                         hist_bins=100, 
                                                                          stdv_cutoff=std_cutoff,
                                                                          return_stdv=True
                                                                          )
@@ -319,20 +317,25 @@ if __name__ == "__main__":
     )
 
     # Set values for scope interactions
-    num_samples = int(1e3) # Number of samples per acquisition segment in the sequence
-    N = 1000 # Number of acquisitions per sequence
-    num_loops = 1 # Number of sequences 
+    num_samples = int(500) # Number of samples per acquisition segment in the sequence
+    N = 10000 # Number of waveforms per sequence
+    num_loops = 10 # Number of sequences 
     
-    div_time = 5e-9 # There are 10 divisons per acquisition
+    div_time = 10e-9 # There are 10 divisons per acquisition
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
     deskew_time = 30e-9 # Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
 
     ref_thresh = .05 # Voltage thresholds for reference and chip signals
     chip_thresh = 0.5
 
+    std_cutoff = 3
+
     jitter_list = []
     param_val_list = []
 
+    # Name global variable where everything will be stored
+    save_dir = "C:\\LeCroy\\ScopeData"
+    
     # Clear all previous data in save_dir
     clear_folder(save_dir)
 
@@ -347,15 +350,17 @@ if __name__ == "__main__":
                 if param == "DCcompensate":
                     registers = parameters.copy()
                     registers[param] = val
-
+                    
+                    t0 = time.time()
                     snspd.set_register(**registers)
                     snspd.TX_reg()
                     print(f"\nSet {param} = {val}")
-                    t0 = time.time()
+                    
                     stdv_val = scope_acq(param, sweep_val=val,
                                         num_samples=num_samples, N=N, num_loops=num_loops,
                                         div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
-                                        ref_thresh=ref_thresh, chip_thresh=chip_thresh)
+                                        ref_thresh=ref_thresh, chip_thresh=chip_thresh, 
+                                        std_cutoff=std_cutoff)
                     
                     elapsed = time.time() - t0
                     per_value_times.append(elapsed)

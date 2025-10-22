@@ -4,7 +4,7 @@ This code is designed to run with Teledyne LeCroy MAUI™ oscilloscopes. The pri
 
 Here we outline an overview of connecting the scope and the code functionality.
 
-## Connecting the scope with PC
+# Connecting the scope with PC
 The scope should be connected to the PC via ethernet on a local network. We additionally used a switch as an intermediate between the PC and scope. Proper connectivity should be confirmed by first pinging the scope from the PC and then attempting to ping the PC from the scope.
 
 ### Disable firewall
@@ -25,22 +25,66 @@ The `MAUI.py` file is written to work through ActiveDSO. For this to work you mu
 
 With that being said, VISA has all the same functionality and in some cases may already be installed on the PC. The syntax is quite similar for the two drivers, and re-writing `MAUI.py` to work with VISA shouldn't be overly convoluted (just a little annoying perhaps).
 
-## Scope Interfacing Files
-Once you've connected to the scope through the appropriate interface, you may begin sending commands. The full documentation for remote control can be found [here](https://www.mouser.com/pdfDocs/maui-remote-control-and-automation-manual.pdf?srsltid=AfmBOopTUiOzCRKhMw20rTQm8g4ExqgGg3dFMqV92nIm03f7aezunvxA). 
+# Overview of Files
+Once you've connected to the scope through the appropriate interface, you may begin sending commands. The full documentation for remote control can be found [here](https://www.mouser.com/pdfDocs/maui-remote-control-and-automation-manual.pdf?srsltid=AfmBOopTUiOzCRKhMw20rTQm8g4ExqgGg3dFMqV92nIm03f7aezunvxA). The key files for the automated jitter measurements are
 
-The `MAUI.py` file contains a class that streamlines the connection and control processes outlined in the manual. As mentioned earlier, it will not work without ActiveDSO installed. 
+## `MAUI.py`
+The [`MAUI.py`](Scope_Interfacing_Code/MAUI.py) file contains a class that streamlines the connection and control processes outlined in the manual. As mentioned earlier, it will not work without ActiveDSO installed. 
 
-The `scope_stuff_MDP.py` file utilizes the class defined in `MAUI.py` for higher level functions directly designed with jitter measurements in mind.
+## `scope_stuff_MDP.py`
+The [`scope_stuff_MDP.py`](Scope_Interfacing_Code/scope_stuff_MDP.py) file utilizes the class defined in `MAUI.py` for higher level functions directly designed with jitter measurements in mind.
 
-The `main.py` file uses functions from `scope_script_MDP.py` to outline a protocol that includes adjusting the chip parameters through a connected arduino.
+The 3 key functions that we call on from this file:
 
-## Important Notes about Acquisition with Scope
-The scope supports a variety of modes for acquiring data. In our case, where we want to acquire many waveforms and send all of them to the PC, the best option is sequence mode. With this you set a number of waveform segments to acquire (when they're triggered) and the scope stores them all in local memory until all the data has been collected. Afterwards you can extract all the waveforms together in one numpy array. 
+- `extract_waves_multi_seq()` is what will set the acquisition mode and triggers on the scope and then transfer from the 2 channels to the scope as numpy arrays. It also returns the true number of samples as limited by the scope. This is important to have, since it's used by `get_offsets()`
+- `get_offsets()` takes two waveforms (each with time and signal data) and then detects rising/falling edges between channels to get the time offset between them. While it's functional, the current implementation is quite inefficient and should be improved. See the **Key Issues to Address** section for more details.
+- `make_histogram_and_guassian()` takes offset data and forms it into a histogram. It also has a `stdv_cutoff` parameter that, for nonzero values, will exclude all datapoints more than that many standard deviations from the mean. It will also try to overlay a gaussian who's FWHM is derived from the standard deviation of the filtered data. The accuracy of this fit can be inconsistent - we elaborae in **Key Issues to Address**
 
-With this in mind, here are some particular scope-related quirks we've come across that are worth flagging.
+
+## `main.py`
+The [`main.py`](main.py) file uses functions from `scope_stuff_MDP.py` to outline a protocol that includes adjusting the chip parameters through a connected arduino. Running this file sweeps a chip parameter, triggers the MAUI scope, pulls burst sequences, computes timing offsets between the two channels, saves raw waveforms and offsets, and exports a histogram.
+
+A directory to store the waveform and jitter data is created at `C:\\LeCroy\\ScopeData`. Within this directory we'll store folders with data corresponding to the specific chip parameter and value being investigated at that moment
+
+Within each waveform folder there will be `num_loops` number of `.npy` files with waveform sequences.
+
+There will also be a `.txt` file that stores offset values. Whie the program is running there will be multiple such files for every loop, but at the end these are all concantenated into one large file for a parameter and value.
+
+VISUAL HERE
+
+The `SLOW_SPI_COM_TEST.py` is called by `main.py` to establish connection with the chip (via an intermediate arduino) and to set key parameters.
+
+After this, the PC will set up the scope to transfer data. Depending on the 
+
+## Key Issues to Address
+Our work is incredibly effective at automating the collection of rising/falling edge waveforms from the scope as we sweep chip parameters. However, the actual processing of those waveforms to properly calculate the delay between edges still has room for improvement. 
+
+Here we address some key points to address and be aware of moving forward: 
+
+
+### Offset Calculation Inefficiency
+An issue we only truly noticed later on in our project timeline was an issue with our `get_offsets()` function in `scope_stuff_MDP.py`. What the function does is take the sequences of waveforms for both the reference and chip signals and attempts to explicitly calculates the number of time rising/falling edges go past the thresholds set for the reference/chip signals, respectively. If this number is the same for both, then things proceed very smoothly and things work as planned.
+
+However, what happens the vast majority of the time is that there will be a mismatch. In this case, you have two options depending on how you set the `mismatch_handling` parameter:
+
+- If `mismatch_handling == False`, the function will simply return a `ValueError` and, at least in `main.py`, the PC will just try to get new data and hope for the best
+
+- If `mismatch_handling == True`, the function will attempt to take the waveform sequences and break them into their individual acquisition windows. It will then iterate through all `N` windows and try to find edge delays between channels for each.
+
+The second option is generally preferable. It means we can still get data from a sequence we'd otherwise discard. And the likelihood of edge crossing events corresponding perfectly between channels is low.
+
+However, a common problem arises where multiple detection events are identified where they shouldn't be. For example: 
+
+![Edge detection mismatch](Figures/edge_mismatch_example.png)
+
+In the figure above, the code detected 2 events for the reference signal, but only one for the chip. In this case, the function would simply move past this portion of the sequence and go on to the next. 
+
+**_This can lead to the majority of data being discarded_**
+
+The frequency and severity of this issue may vary, but it's one of the key issues to address moving forward.
 
 ### Setting samples per acquisition 
-The maximum number of samples acquired in each acquisition segment can be set manually. However the scope will convert this to the nearest (lower) acceptable value. The specific maximum allowed sample value is limited by memory constraints and internal settings. 
+The maximum number of samples acquired in each acquisition segment can be set manually in `main.py` with the `num_samples` parameter. However the scope will convert this to the nearest acceptable value. The specific allowed sample values will be limited by memory constraints and internal settings based on other parameters you may set. 
 
 For example, if you set the number of acquisitions per sequence to be `N=10000`, the allowed maximum number of samples per acquisition will likely be much lower than with a smaller number of acquisitions.
 
@@ -52,23 +96,26 @@ The time it takes to get data in sequence mode depends on a number of factors. H
 
 Note: This only accounts for the time to extract data from the scope as a numpy array. It does NOT include the time it takes to store the wave data to the PC
 
-Another important metric to keep in mind with regards to samples per sequence is memory. We found that, when storing 100 sequences of 10,000 samples as a CSV file, it was around 50 KB of data.
+Another important metric to keep in mind with regards to samples per sequence is memory. We found that, when storing 100 waveforms each with 10,000 samples (so 1,000,000 datapoints) as a CSV file, it was around 50 KB of data.
 
-### First segment acquisition irregularity
+### Metadata in data causing problems
 When collecting waveform data in sequence mode, we noticed that the first acquisition always has unusual spiking behavior in the beginning. The sequence below shows this:
 
 ![AWG and chip signals from one large sequence](Figures/sequence_signals.png)
 
-This spiking obviously messes with our ability to process the data. For this reason, we have a parameter in our `get_offsets()` function that species how many samples to clip out from the beginning. We set this by default to `num_samples`, which is the number of samples per individual waveform acquisition. This removes the anomalous behavior from the beginning. 
+This is because, when the scope sends data to the PC, the first several hundred bytes will be metadata describing various settings for the waveform. Unfortunately the _specific length_ of this metadata varies significantly depending on the settings used for acquiring data. Changing `num_samples`, `N`, `num_loops`, `div_time`, etc will all alter this initial description data.
 
-The scope trigger occurs right on a rising or falling edge, the front end of the oscilloscope and the probe can’t respond instantly so it overshoots and keeps ringing for a bit until it stabilizes.
+We address this in our `extract_waves_multi_seq()` function on lines 242 and 243 (found in `scope_stuff_MDP.py`). We take all the data from the scope, and clip from the end only the `num_samples*N` datapoints we expect.
+
+While this is better than nothing, a more proper approach would be to go through the metadata and use the information there to isolate signal data. We unfortunately didn't have time to pursue this.
+
 
 ### Extreme Outlier Data
-As you may have noticed above, the AWG will sometimes skip or bunch pulses together in a way that leads to very uncharacteristic outlier data. This can cause plots that look like this:
+Often, particularly for sequences with larger `N` waveforms in them, there will be extreme but consistent outliers in the data:
 
 ![Data with extreme outliers](Figures/hist_without_stdv_cutoff_example.png)
 
-The outlier data seen on the far right is present in basically every measurement we do. We're not sure where it comes from, but it messes with our FWHM calculation.
+This is likely due (again) to the `get_offsets()` function. As mentioned above, the function *attempts* to break the sequence of `N` waveforms evenly into individual windows. However this process assumes that there are exactly `N*num_samples` datapoints
 
 If we take the same dataset, but then omit any data more than 4 standard deviations away from the mean, we get the following plot:
 
@@ -91,7 +138,7 @@ A combined histogram plot of offset values is written as: hist_{param_name}{swee
 
 We have saved the data this way because as we increase the N value, the scope is missing out on a few detections. Hence, to reduce such events by using a lower N, we have done it multiple times(num_loops).
 
-### Overview main.py
+## Overview main.py
 
 Running this file sweeps a chip parameter, triggers the MAUI scope, pulls burst sequences, computes ref(AWG) vs chip timing offsets, saves raw waveforms and offsets, and exports a histogram.
 

@@ -207,7 +207,9 @@ def extract_waves_multi_seq(scope, N, num_samples,
 
     # Get the actual number of samples as limited by the scope
     real_num_samples = scope.query("""VBS? 'return=app.acquisition.horizontal.maxsamples'""")
-    print(f"The set number of samples to be acquired is {real_num_samples}")
+    print(f"The real number of samples to be acquired is {real_num_samples}")
+
+    num_samples = int(real_num_samples)
 
     # Set proper coupling for both channels
     scope.write(f"""VBS 'app.Acquisition.{ref_channel}.Coupling = "DC50"'""")
@@ -227,19 +229,20 @@ def extract_waves_multi_seq(scope, N, num_samples,
     scope.trigger()
     scope.wait()
 
-    # Retrieve waveforms from both channels -- SHOULD return all segments together
-    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=N*num_samples) # How big should str length be?
-    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=N*num_samples)
+    # print(f"Str_length = {N*num_samples}")
+    # Retrieve waveforms from both channels -- return all segments together with metadata at the beginning
+    time_array_r, ref_array = scope.get_waveform_numpy(channel="C1", str_length=50000000)  # Str length big enough to get everything
+    time_array_c, chip_array = scope.get_waveform_numpy(channel="C2", str_length=50000000)
 
     # Check if time arrays match each other
     if not np.array_equal(time_array_r, time_array_c):
         raise ValueError("Time arrays from both channels do not match.")
 
-    # Combine time and amplitude data into single arrays
-    ref_data = np.asarray([time_array_r, ref_array])
-    chip_data = np.asarray([time_array_c, chip_array])
+    # Combine time and amplitude data into single arrays **and cut out initial metadata**
+    ref_data = np.asarray([time_array_r, ref_array])[:, -(N*num_samples):]
+    chip_data = np.asarray([time_array_c, chip_array])[:, -(N*num_samples):]
     
-    return ref_data, chip_data
+    return ref_data, chip_data, num_samples
 
 
 def chunk_data(data_array, num_samples):
@@ -324,6 +327,8 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
     # Check that each channel has corresponding falling edge events
     print(f"\tNumber of reference threshold crossings: {len(ref_crossings_indices)}")
     print(f"\tNumber of chip threshold crossings: {len(chip_crossings_indices)}")
+
+    ref_crossing_times = []
     
     # - - - - - - - - - -  - - -  If the number of crossings in each channel don't match - - - - - - - - - - - - - - -  - - - -  - 
     if len(ref_crossings_indices) != len(chip_crossings_indices):
@@ -360,7 +365,6 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
                 # print(f"\n\nRef edge crossing indices: {seg_ref_crossing_index}")
 
                 # For each segment, find indices of threshold crossing (falling edge for chip)
-                seg_c_above = seg_chip_array > chip_threshold
                 seg_chip_crossing_index = get_crossing_inds(seg_chip_array, chip_threshold, "NEG")
 
                 # print(f"\n\nChip edge crossing indices: {seg_chip_crossing_index}")
@@ -374,11 +378,36 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
                 
                 # If there's one crossing per channel in this segment, proceed
                 else:
+                    
+                    # -  - - -- -- - - - - -- - - - FOR DEBUGGING - - - - - - - - - - - -- - --- - 
+                    # fig, ax = plt.subplots(2,1)
+                    
+                    # ymax_ref = np.max(seg_ref_array)
+                    # ymin_ref = np.min(seg_ref_array)
+                    # ymax_chip = np.max(seg_chip_array)
+                    # ymin_chip = np.min(seg_chip_array)                
+                    
+                    # ax[0].plot(seg_time_array, seg_ref_array)
+                    # ax[0].vlines(seg_time_array[seg_ref_crossing_index], ymin_ref, ymax_ref, colors="red")
+                    # ax[0].set_xlim(min(seg_time_array), max(seg_time_array))
+                    # ax[0].set_title("Ref signal")
+                    # ax[1].plot(seg_time_array, seg_chip_array)
+                    # ax[1].vlines(seg_time_array[seg_chip_crossing_index], ymin_chip, ymax_chip, colors="red")
+                    # ax[1].set_xlim(min(seg_time_array), max(seg_time_array))
+                    # ax[1].set_title("Chip signal")
+                    # fig.tight_layout()
+                    # plt.plot()
+                    
+                    
+                    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -- -- - -
+                    
                     seg_ref_crossing_time = seg_time_array[seg_ref_crossing_index]
                     seg_chip_crossing_time = seg_time_array[seg_chip_crossing_index]
                     
-                    offset_vals.append(seg_chip_crossing_time - seg_ref_crossing_time)
-                    # print(seg_ref_crossing_time-seg_chip_crossing_time)
+                    seg_offset = seg_chip_crossing_time - seg_ref_crossing_time
+                    
+                    offset_vals.append(seg_offset)
+                    ref_crossing_times.append(seg_ref_crossing_time)
             
             return np.asarray(offset_vals)
     # - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - 
@@ -388,9 +417,8 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
         ref_crossing_times = time_array[ref_crossings_indices]
         chip_crossing_times = time_array[chip_crossings_indices]
         offset_vals = chip_crossing_times - ref_crossing_times
-
+        
         return offset_vals
-
 
 def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cutoff=0, return_stdv=False):
     """
@@ -418,16 +446,18 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
     
     filtered_vals = offset_vals[mask]
     hist, bin_edges = np.histogram(filtered_vals, bins=hist_bins)
+
+    bin_width = bin_edges[1] - bin_edges[0]
     
-    A = np.max(hist)
     mean = np.mean(filtered_vals)
     stdv = np.std(filtered_vals)
+    A = np.max(hist)
 
     def gaussian(x, amp, mu, sigma):
         
         # We multiply by bin width to account for the fact that the gaussian here is measuring
         # counts, NOT a probability distribution
-        return amp * np.exp(-0.5 * ((x - mu) / sigma)**2) #* bin_width
+        return amp * np.exp(-0.5 * ((x - mu) / sigma)**2)
 
     # Create histogram and fitted gaussian
     fig, ax = plt.subplots(figsize=(8,5))
@@ -456,7 +486,6 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
         return fig, hist, bin_edges, stdv
     else:
         return fig, hist, bin_edges
-
 
 def calculate_mean_and_std(offset_value_list):
 

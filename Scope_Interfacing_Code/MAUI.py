@@ -61,6 +61,11 @@ class MAUI:
         self.write(f"{channel}:WF? ALL")
         raw = self.scope.ReadBinary(str_length)
 
+        # # # print(self.query("TMPL?"))
+        # a = np.frombuffer(raw, dtype=np.uint8)
+        # num_len_digits = int(raw[1:2].decode())
+        # print(f"num_len_digits: {num_len_digits}")
+
         volts_per_div = float(self.query(f"{channel}:VDIV?"))
         offset_volts = float(self.query(f"{channel}:OFST?"))
         time_div = float(self.query("TDIV?"))

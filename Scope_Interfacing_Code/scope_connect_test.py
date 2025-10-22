@@ -10,8 +10,10 @@ if __name__=="__main__":
     
     delete_prev_data = True # Delete data from previous experiments
     
-    num_samples = int(1e3) # Number of samples per acquisition segment in the sequence
-    N = 10 # Number of acquisitions per sequence
+    num_samples = int(500) # Number of samples per acquisition segment in the sequence
+    # Min possible value is 500 Samples, max is 10 MSamples
+
+    N = 10000 # Number of acquisitions per sequence
     num_loops = 10 # Number of sequences 
     
     div_time = 5e-9 # There are 10 divisons per acquisition
@@ -21,10 +23,6 @@ if __name__=="__main__":
     # Voltage thresholds for reference and chip signals
     ref_thresh = .05#.08
     chip_thresh = 0.5#0
-
-    # Number of initial samples to discard when processing data
-    # There's consistently a weird signal spike during the first acquisition, so we discard some data
-    clip = num_samples//3
 
     # Make appropriate (sub)directories for storing data from each loop
     save_dir = "C:\\LeCroy\\ScopeData"
@@ -79,8 +77,8 @@ if __name__=="__main__":
             # Get the absolute time wrt previous loops so that time data between files is distinct
             time_this_loop = N*10*div_time*loop # Number of waveforms * 10 time divisions per waveform * loop number
             
-            # Get N waveform sequences from both channels 
-            ref_data, chip_data = ss.extract_waves_multi_seq(c, 
+            # Get N waveform sequences from both channels and also the true number of samples per acquisition
+            ref_data, chip_data, real_num_samples = ss.extract_waves_multi_seq(c, 
                                                         N=N,
                                                         num_samples=num_samples, 
                                                         ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
@@ -88,45 +86,43 @@ if __name__=="__main__":
                                                         hold_time=hold_time, deskew_val=deskew_time)
             print(f"\tData acquired")
             print(f"Shape of ref_data is {ref_data.shape}")
+
+                # Number of initial samples to discard when processing data
+            # There's consistently a weird signal spike during the first acquisition, so we discard some data
+            clip = 0#real_num_samples
             
             # Add approprite offset to time data
             ref_data[0] = ref_data[0] + time_this_loop
             chip_data[0] = chip_data[0] + time_this_loop
 
-            try:
-                # Get time offset btwn falling edges in both channels
-                offset_vals = ss.get_offsets(ref_data,
-                                    chip_data,
-                                    ref_threshold=ref_thresh,
-                                    chip_threshold=chip_thresh,
-                                    clip=clip,
-                                    mismatch_handling=True,
-                                    num_samples=num_samples)
-                
-                print(f"\tOffsets calculated")
-                
-                # Save wave data to files specific to this loop
-                np.save(ref_data_file_i, ref_data)
-                np.save(chip_data_file_i, chip_data)
-                print("\tWaveforms saved")
-                
-                # # So we don't overflow memory; just for testing
-                # os.remove(ref_data_file_i)
-                # os.remove(chip_data_file_i)
+            # try:
 
-                # Save offset data to file specific to this loop
-                np.savetxt(offset_file_i, offset_vals)
-                print(f"\tOffsets saved")
+            # Get time offset btwn falling edges in both channels
+            offset_vals = ss.get_offsets(ref_data,
+                                chip_data,
+                                ref_threshold=ref_thresh,
+                                chip_threshold=chip_thresh,
+                                clip=clip,
+                                mismatch_handling=True,
+                                num_samples=real_num_samples)
             
-                del ref_data, chip_data, offset_vals
-                loop += 1
+            print(f"\tOffsets calculated")
             
-            # If data isn't properly formatted, discard it and move on to the next loop
-            except ValueError as e:
-                print(str(e))
-                print(f"\tDiscarding problematic waveforms from this loop")
+            # Save wave data to files specific to this loop
+            np.save(ref_data_file_i, ref_data)
+            np.save(chip_data_file_i, chip_data)
+            print("\tWaveforms saved")
             
-                del ref_data, chip_data
+            # # So we don't overflow memory; just for testing
+            # os.remove(ref_data_file_i)
+            # os.remove(chip_data_file_i)
+
+            # Save offset data to file specific to this loop
+            np.savetxt(offset_file_i, offset_vals)
+            print(f"\tOffsets saved")
+        
+            del ref_data, chip_data, offset_vals
+            loop += 1      
             
             gc.collect()
 
@@ -150,4 +146,6 @@ if __name__=="__main__":
         print(f"\nAverage offset btwn edges: {mean_val}")
         print(f"Stdv of offset time: {std_val}")
 
-        fig, hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=100, stdv_cutoff=5, plot=True)
+        fig, hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=100, stdv_cutoff=3, plot=True)
+        # plt.hist(np.mod(ref_crossing_times, 50e-9))
+        # plt.show()
