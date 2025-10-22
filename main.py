@@ -323,10 +323,10 @@ if __name__ == "__main__":
     N = 1000 # Number of acquisitions per sequence
     num_loops = 1 # Number of sequences 
     
-    # div_time = 5e-9 # There are 10 divisons per acquisition
+    div_time = 5e-9 # There are 10 divisons per acquisition
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
     deskew_time = 30e-9 # Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
-    
+
     ref_thresh = .05 # Voltage thresholds for reference and chip signals
     chip_thresh = 0.5
 
@@ -351,15 +351,28 @@ if __name__ == "__main__":
                     snspd.set_register(**registers)
                     snspd.TX_reg()
                     print(f"\nSet {param} = {val}")
-
+                    t0 = time.time()
                     stdv_val = scope_acq(param, sweep_val=val,
                                         num_samples=num_samples, N=N, num_loops=num_loops,
                                         div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
                                         ref_thresh=ref_thresh, chip_thresh=chip_thresh)
                     
+                    elapsed = time.time() - t0
+                    per_value_times.append(elapsed)
                     param_val_list.append(val)
                     jitter_list.append(stdv_val)
 
+            # --- per-parameter summary ---
+            num_points = len(per_value_times)
+            total_time_s = sum(per_value_times) if num_points else 0.0
+            mean_time_s = (total_time_s / num_points) if num_points else 0.0
+
+            print(
+                f"\nSummary for {param}:\n"
+                f"  Sweep points:        {num_points}\n"
+                f"  Total time:          {total_time_s:.2f} s ({total_time_s/60:.2f} min)\n"
+                f"  Mean per value:      {mean_time_s:.2f} s\n"
+            )
         print("\nSweep completed successfully!")
 
     plt.plot(param_val_list, jitter_list)
