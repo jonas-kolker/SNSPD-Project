@@ -2,7 +2,7 @@
 import serial
 
 from classes.Snspd_V2_TEST import Snspd
-from classes.SMU_2636B import SMU_2636B
+# from classes.SMU_2636B import SMU_2636B
 
 import numpy as np
 import time

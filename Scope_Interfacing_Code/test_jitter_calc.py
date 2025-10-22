@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import scope_script_MDP as ss
+import Scope_Interfacing_Code.scope_stuff_MDP as ss
 import os
 
 dir = os.getcwd()

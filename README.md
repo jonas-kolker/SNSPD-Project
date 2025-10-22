@@ -30,7 +30,7 @@ Once you've connected to the scope through the appropriate interface, you may be
 
 The `MAUI.py` file contains a class that streamlines the connection and control processes outlined in the manual. As mentioned earlier, it will not work without ActiveDSO installed. 
 
-The `scope_script_MDP.py` file utilizes the class defined in `MAUI.py` for higher level functions directly designed with jitter measurements in mind.
+The `scope_stuff_MDP.py` file utilizes the class defined in `MAUI.py` for higher level functions directly designed with jitter measurements in mind.
 
 The `main.py` file uses functions from `scope_script_MDP.py` to outline a protocol that includes adjusting the chip parameters through a connected arduino.
 

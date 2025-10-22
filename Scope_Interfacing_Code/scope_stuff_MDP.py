@@ -176,7 +176,7 @@ def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9,
 def extract_waves_multi_seq(scope, N, num_samples, 
                             ref_channel="C1", ref_edge_slope="POS", ref_thresh=.08,
                             chip_channel="C2", chip_edge_slope="NEG", chip_thresh=-.9, 
-                            hold_time=50e-9):
+                            hold_time=50e-9, deskew_val=30e-9):
     """
     Retrieves waveforms from both channels of the scope N times (triggered by falling edge). Waveform
     segments are stored on scope until all acquisitions are complete, then they're transferred to the pc.
@@ -205,12 +205,23 @@ def extract_waves_multi_seq(scope, N, num_samples,
     # Set sequence mode to be on for N segments
     scope.write(F"SEQ ON, {N}, {num_samples}")
 
+    # Get the actual number of samples as limited by the scope
+    real_num_samples = scope.query("""VBS? 'return=app.acquisition.horizontal.maxsamples'""")
+    print(f"The set number of samples to be acquired is {real_num_samples}")
+
+    # Set proper coupling for both channels
+    scope.write(f"""VBS 'app.Acquisition.{ref_channel}.Coupling = "DC50"'""")
+    scope.write(f"""VBS 'app.Acquisition.{chip_channel}.Coupling = "DC1M"'""")
+
     # Set the trigger to falling edge on channel 1 below threshold voltage
     set_edge_qualified_trigger(scope, 
                                ref_channel, ref_edge_slope, ref_thresh,
                                chip_channel, chip_edge_slope, chip_thresh,
                                hold_time)
 
+    # Add skew delay to channel 1 so that the edge visually aligns with the chip edge
+    scope.write(f"""VBS 'app.Acquisition.C1.Deskew = {deskew_val}' """)
+    
     # Set trigger mode to single
     scope.set_trigger_mode("SINGLE")
     scope.trigger()
@@ -248,6 +259,26 @@ def chunk_data(data_array, num_samples):
 
     return chunks 
 
+def get_crossing_inds(data, threshold, slope):
+    """
+    Find the indices in a data array where a rising or falling edge crosses some threshold
+
+    Parameters:
+        data (np.array): Array of signal data
+        threshold (float): Value of interest for crossing
+        slope (str): Either "POS" or "NEG
+
+    Returns:
+        crossings_indices (np.array): An array of indices where a crossing occurs
+    """
+    if slope == "POS":
+        below = data < threshold
+        crossings_indices  = np.where( (below[:-1]) & (~below[1:]) )[0]
+    elif slope == "NEG":
+        above = data > threshold
+        crossings_indices = np.where( (above[:-1]) & (~above[1:]) )[0]
+    
+    return crossings_indices
 
 def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mismatch_handling=False, num_samples=0):
     """
@@ -285,12 +316,10 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
     chip_array = chip_array[:min_length]
 
     # Find indices where signals cross the threshold (rising edge detection for ref)
-    r_below = ref_array < ref_threshold
-    ref_crossings_indices  = np.where( (r_below[:-1]) & (~r_below[1:]) )[0]
+    ref_crossings_indices  = get_crossing_inds(ref_array, ref_threshold, "POS")
     
     # Find indices where signals cross the threshold (falling edge detection for chip)
-    c_above = chip_array > chip_threshold
-    chip_crossings_indices = np.where( (c_above[:-1]) & (~c_above[1:]) )[0]
+    chip_crossings_indices = get_crossing_inds(chip_array, chip_threshold, "NEG")
 
     # Check that each channel has corresponding falling edge events
     print(f"\tNumber of reference threshold crossings: {len(ref_crossings_indices)}")
@@ -319,24 +348,6 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
             waveform_time_vals = chunk_data(time_array, num_samples)
             offset_vals = []
 
-            # - - - - - - - - -- - - - - - - - WORK IN PROGRESS - - - - - - - - - - - - - - - - - 
-            # # Handle all uniformly sized data
-            # ref_waveforms_array = np.array(ref_waveforms[:-1])
-            # chip_waveforms_array = np.array(chip_waveforms[:-1])
-            # waveform_time_vals = np.array(waveform_time_vals[:-1])
-
-            # # Get smaller, final segment data
-            # ref_waveforms_last = np.array(ref_waveforms[-1])
-            # chip_waveforms_last = np.array(chip_waveforms[-1])
-            # waveform_time_vals_last = np.array(waveform_time_vals[-1])
-
-            # ref_below  = ref_waveforms_array < ref_threshold
-            # ref_crossing_
-            
-            #chip_above = chip_waveforms_array < chip_threshold
-            # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  
-
-
             # Try to get offset value for each individual acquisition segment. If there's a mismatch or error, discard that segment
             for i in range(len(ref_waveforms)):
                 seg_ref_array = ref_waveforms[i]
@@ -344,16 +355,20 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
                 seg_time_array = waveform_time_vals[i]
 
                 # For each segment, find indices of threshold crossing (rising edge for ref)
-                seg_r_below = seg_ref_array < ref_threshold
-                seg_ref_crossing_index  = np.where( (seg_r_below[:-1]) & (~seg_r_below[1:]) )[0]
+                seg_ref_crossing_index  = get_crossing_inds(seg_ref_array, ref_threshold, "POS")
+
+                # print(f"\n\nRef edge crossing indices: {seg_ref_crossing_index}")
 
                 # For each segment, find indices of threshold crossing (falling edge for chip)
                 seg_c_above = seg_chip_array > chip_threshold
-                seg_chip_crossing_index = np.where( (seg_c_above[:-1]) & (~seg_c_above[1:]) )[0]
+                seg_chip_crossing_index = get_crossing_inds(seg_chip_array, chip_threshold, "NEG")
+
+                # print(f"\n\nChip edge crossing indices: {seg_chip_crossing_index}")
 
                 # There should be the same number of crossings in each channel, and that number should be 1 per individaul segment
                 seg_num_ref_crossings = len(seg_ref_crossing_index)
                 seg_num_chip_crossings = len(seg_chip_crossing_index)
+                
                 if (seg_num_chip_crossings != seg_num_ref_crossings) or (seg_num_chip_crossings != 1) or (seg_num_ref_crossings != 1):
                     pass
                 
@@ -377,7 +392,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, clip=0, mism
         return offset_vals
 
 
-def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cutoff=0):
+def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cutoff=0, return_stdv=False):
     """
     Create a histogram of the offset values and fit a gaussian to it
 
@@ -386,11 +401,12 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
         plot (bool): Whether to plot the histogram and fitted gaussian
         hist_bins (int): Number of bins to use in the histogram
         stdv_cutoff (int): Filters out data more than some this many sigmas from the mean. Set to 0 for no cutoff.
-    
+        return_stdv (bool): Whether or not to return filtered data stdv
     Returns:
         fig (plt.Figure): Pyplot figure object that can be saved/displayed
         hist (np.array): Array of histogram bin counts
         bin_edges (np.array): Array of histogram bin edges 
+        filt_stdv (float): Standard deviation of filtered data
         
         
     """
@@ -407,8 +423,6 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
     mean = np.mean(filtered_vals)
     stdv = np.std(filtered_vals)
 
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-
     def gaussian(x, amp, mu, sigma):
         
         # We multiply by bin width to account for the fact that the gaussian here is measuring
@@ -418,22 +432,30 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
     # Create histogram and fitted gaussian
     fig, ax = plt.subplots(figsize=(8,5))
     ax.hist(filtered_vals, bins=hist_bins)
-    # plt.xlim(mean - stdv_cutoff*stdv, mean + stdv_cutoff*stdv_cutoff)
     
     x_fit = np.linspace(min(bin_edges), max(bin_edges), 1000)
     y_fit = gaussian(x_fit, A, mean, stdv)
-    ax.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
     
+    ax.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
     ax.set_xlabel('Time Offset (s)')
     ax.set_ylabel('Counts')
-    ax.set_title('Histogram of Time Offsets')
     ax.legend()
     
-    if plot:
-        
+    if stdv_cutoff != 0 :
+        ax.set_title(f'Histogram of Time Offsets for data w/in {stdv_cutoff}$\sigma$ of mean')
+    else:
+        ax.set_title(f'Histogram of Time Offsets for data')
+
+    print(f"Filtered data mean: {mean}")
+    print(f"Filtered data stdv: {stdv}")
+
+    if plot:   
         plt.show() 
 
-    return fig, hist, bin_edges
+    if return_stdv:
+        return fig, hist, bin_edges, stdv
+    else:
+        return fig, hist, bin_edges
 
 
 def calculate_mean_and_std(offset_value_list):

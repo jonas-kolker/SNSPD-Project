@@ -19,10 +19,10 @@ def load_com_ports(filename):
     with open(filename, 'r') as f:
         return f.read().splitlines()
 
-#Ranges for parameters(snspd registers)
+# Ranges for parameters(snspd registers)
 def sweep_values(param_name):
     ranges = {
-        "DCcompensate": range(0, 8, 2),
+        "DCcompensate": range(0, 8, 1),
         "DFBamp": range(1, 16, 4),
         "DSNSPD": range(0, 128, 16),
         "DAQSW": range(0, 128, 16),
@@ -43,13 +43,33 @@ def sweep_values(param_name):
     }
     return ranges.get(param_name, [0])
 
+def clear_folder(folder_path):
+    """
+    Deletes all files and folders inside `folder_path`, but leaves the folder itself intact.
+
+    Parameter:
+        folder_path (str or pathlib.Path): Folder to be cleared
+    """
+    for filename in os.listdir(folder_path):
+        
+        file_path = os.path.join(folder_path, filename)
+       
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)          # remove file or symbolic link
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)      # remove directory and all contents
+        
+        except Exception as e:
+            print(f"Failed to delete {file_path}. Reason: {e}")
+
 def scope_acq(param_name, sweep_val, 
-              num_samples = int(1e4), N = 20, num_loops = 20, 
+              num_samples = int(10), N = 3, num_loops = 10, 
               div_time = 50e-9, hold_time = 900e-9,
               ref_channel="C1", chip_channel="C2",
               ref_thresh = .08, chip_thresh = 0.00, 
               delete_prev_data = True,
-              std_cutoff=0):   
+              std_cutoff=5, deskew_time=30e-9):   
     
     """
     Acquires waveform data from the scope, triggered by the rising edge of a reference signal followed by the falling edge of a second (chip) signal.
@@ -62,18 +82,22 @@ def scope_acq(param_name, sweep_val,
         sweep_val (int): Current value of the chip parameter being swept over. Will be used for naming folders/files
         
         num_samples (int): The number of datapoints to collect in each individual waveform acquisition
-        N (int): The number of waveforms to collect for each sequence we pull from the scope
+        N (int): The number of waveforms to collect for each sequence pulled from the scope
         num_loops (int): The number of sequences to pull from the scope
         
-        div_time (int): Duration of each time division. Each waveform acquisition will span 10 divisions
-        hold_time (int): Maximum time btwn rising ref edge and falling chip edge for scope to trigger an acquisition
+        div_time (float): Duration of each time division. Each waveform acquisition will span 10 divisions. Each sequence is N*10 divisions
+        hold_time (float): Maximum time btwn rising ref edge and falling chip edge for scope to trigger an acquisition
+        deskew_time (float): Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
         
         ref_channel, chip_channel (str): Scope channels for ref signal, chip signal
-        ref_thresh, chip_thresh (float): Voltage thresholds for edges (rising edge for ref, falling edge for chip) we use to trigger events and calculate delay times
+        ref_thresh, chip_thresh (float): Voltage thresholds for edges (rising edge for ref, falling edge for chip) used to trigger events and calculate delays
 
         delet_prev_data (bool): Whether or not to delete old folders with the same names as the ones we'll be using (best to keep True)
-
         std_cutoff (int): Any delay data more than this many stdvs from the mean will be discarded and not considered. Removes extreme outlier data.
+        deskew_time (int): Delay ref data by this much in acquisition. Helps align edges in both channels so less data to be collected. 
+    
+    Returns:
+        offset_stdv (float): The standard deviation of the offsets. If std_cutoff isn't 0, this will be the filtered data value
     
     """
     
@@ -86,26 +110,10 @@ def scope_acq(param_name, sweep_val,
 
     # Create final files that will hold "all" the data
     combined_offset_file = os.path.join(save_dir, f"offset_values_all_{param_name}{sweep_val}.txt")
-    combined_ref_data_file = os.path.join(save_dir, f"ref_data_net_{param_name}{sweep_val}.npy")
-    combined_chip_data_file = os.path.join(save_dir, f"chip_data_net_{param_name}{sweep_val}.npy")
 
     # Delete folders with data files from previous experiments
-    if delete_prev_data:
-        
-        if os.path.exists(save_dir_ref):
-            shutil.rmtree(save_dir_ref)
-        if os.path.exists(save_dir_chip):
-            shutil.rmtree(save_dir_chip)
-        if os.path.exists(save_dir_offset):
-            shutil.rmtree(save_dir_offset)
-
-        # Delete cumulative files
-        if os.path.exists(combined_offset_file):
-            os.remove(combined_offset_file)
-        if os.path.exists(combined_ref_data_file):
-            os.remove(combined_ref_data_file)
-        if os.path.exists(combined_chip_data_file):
-            os.remove(combined_chip_data_file)
+    # if delete_prev_data:
+    #    clear_folder(save_dir)
 
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(save_dir_ref, exist_ok=True)
@@ -121,8 +129,9 @@ def scope_acq(param_name, sweep_val,
             c.reset()
 
             # Set appropriate voltage scales and time divisions for acquisition
-            c.set_vertical_scale(ref_channel, .05)# For AWG this should be 20 mV (.020)
-            c.set_vertical_scale(chip_channel, .22)
+            c.set_vertical_scale(ref_channel, .05) 
+            c.set_vertical_scale(chip_channel, .35)
+            c.set_timebase(div_time)
 
             c.idn() # Needed for scope acquisitions to work for some reason
 
@@ -138,9 +147,9 @@ def scope_acq(param_name, sweep_val,
             ref_data, chip_data = ss.extract_waves_multi_seq(c, 
                                                         N=N,
                                                         num_samples=num_samples, 
-                                                        ref_channel=ref_channel, ref_edge_slope="POS", ref_thresh=ref_thresh,
-                                                        chip_channel=chip_channel, chip_edge_slope="NEG", chip_thresh=chip_thresh, 
-                                                        hold_time = hold_time)
+                                                        ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
+                                                        chip_channel="C2", chip_edge_slope="NEG", chip_thresh=chip_thresh,
+                                                        hold_time=hold_time, deskew_val=deskew_time)
             print(f"\tData acquired")
             
             # Add approprite offset to time data
@@ -148,7 +157,7 @@ def scope_acq(param_name, sweep_val,
             chip_data[0] = chip_data[0] + time_this_loop
 
             # When we get a sequence of waveforms, the first one always seems to have some weird voltage spike. We specify here that all the samples from this first acquisition should be disregarded
-            clip = num_samples
+            clip = num_samples//3
 
             # See if data works for calculating edge offsets
             try:
@@ -160,6 +169,7 @@ def scope_acq(param_name, sweep_val,
                                     clip=clip,
                                     mismatch_handling=True,
                                     num_samples=num_samples)
+                
                 print(f"\tOffsets calculated")
                 
                 # Save wave data to files specific to this loop
@@ -204,14 +214,21 @@ def scope_acq(param_name, sweep_val,
 
         mean_val, std_val = ss.calculate_mean_and_std(offset_vals_all)
         
-        print(f"\nAverage offset btwn edges: {mean_val}")
-        print(f"Stdv of offset time: {std_val}")
+        # print(f"\nAverage offset btwn edges: {mean_val}")
+        # print(f"Stdv of offset time: {std_val}")
 
-        fig, hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=40, stdv_cutoff=std_cutoff)
+        fig, hist, bin_edges, stdv_val = ss.make_histogram_and_gaussian(offset_vals_all, 
+                                                                         hist_bins=40, 
+                                                                         stdv_cutoff=std_cutoff,
+                                                                         return_stdv=True
+                                                                         )
 
         save_path = os.path.join(save_dir, f"hist_{param_name}{sweep_val}.png")
 
         fig.savefig(save_path)
+        plt.close(fig)
+
+        return stdv_val
 
 if __name__ == "__main__":
 
@@ -245,6 +262,21 @@ if __name__ == "__main__":
         Dbias_ampn2=D_code
     )
 
+    # Set values for scope interactions
+    num_samples = int(1e3) # Number of samples per acquisition segment in the sequence
+    N = 1000 # Number of acquisitions per sequence
+    num_loops = 1 # Number of sequences 
+    
+    div_time = 5e-9 # There are 10 divisons per acquisition
+    hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
+    deskew_time = 30e-9 # Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
+    
+    ref_thresh = .05 # Voltage thresholds for reference and chip signals
+    chip_thresh = 0.5
+
+    jitter_list = []
+    param_val_list = []
+
     with Snspd(arduino_port) as snspd:
         print("\nStarting parameter sweep")
 
@@ -258,8 +290,19 @@ if __name__ == "__main__":
 
                     snspd.set_register(**registers)
                     snspd.TX_reg()
-                    print(f"Set {param} = {val}")
+                    print(f"\nSet {param} = {val}")
 
-                    scope_acq(param, val)
+                    stdv_val = scope_acq(param, sweep_val=val,
+                                        num_samples=num_samples, N=N, num_loops=num_loops,
+                                        div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
+                                        ref_thresh=ref_thresh, chip_thresh=chip_thresh)
+                    
+                    param_val_list.append(val)
+                    jitter_list.append(stdv_val)
 
         print("\nSweep completed successfully!")
+
+    plt.plot(param_val_list, jitter_list)
+    plt.xlabel("DCcompensate vals")
+    plt.ylabel("Delay Stdv")
+    plt.show()
