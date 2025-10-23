@@ -120,8 +120,10 @@ class Snspd(object):
             
             if write_word[1:] == from_ard:
                 print("Succesful connection")
+                return True
             else:
-                print("Sent/received don't match")            
+                print("Sent/received don't match")
+                return False            
             
             
         else:

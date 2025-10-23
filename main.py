@@ -76,24 +76,24 @@ def sweep_values(param_name):
     """
 
     ranges = {
-        "DCcompensate": range(0, 8, 2),
-        "DFBamp": range(1, 16, 4),
-        "DSNSPD": range(0, 128, 16),
-        "DAQSW": range(0, 128, 16),
-        "VRL": range(0, 32, 4),
-        "Dbias_NMOS": range(0, 256, 32),
+        "DCcompensate": range(0, 8),
+        "DFBamp": range(1, 16),
+        "DSNSPD": range(0, 128),
+        "DAQSW": range(0, 128),
+        "VRL": range(0, 32),
+        "Dbias_NMOS": range(0, 256),
         "DBias_internal": [0, 1],
-        "Dbias_fb_amp": range(0, 128, 16),
-        "Dbias_comp": range(0, 128, 16),
-        "Dbias_PMOS": range(0, 201, 20),
-        "Dbias_ampNMOS": range(0, 128, 16),
-        "Ddelay": range(0, 128, 16),
-        "Dcomp": range(0, 16, 4),
+        "Dbias_fb_amp": range(0, 128),
+        "Dbias_comp": range(0, 128),
+        "Dbias_PMOS": range(0, 201),
+        "Dbias_ampNMOS": range(0, 128),
+        "Ddelay": range(0, 128),
+        "Dcomp": range(0, 16),
         "Analoga": ['None', 'Vref', 'Vamp', 'Vcomp'],
-        "Dbias_ampPMOS": range(0, 128, 16),
-        "DCL": range(0, 16, 4),
-        "Dbias_ampn1": range(0, 128, 16),
-        "Dbias_ampn2": range(0, 128,16)
+        "Dbias_ampPMOS": range(0, 128),
+        "DCL": range(0, 16),
+        "Dbias_ampn1": range(0, 128),
+        "Dbias_ampn2": range(0, 128)
     }
     return ranges.get(param_name, [0])
 
@@ -174,6 +174,8 @@ def scope_acq(param_name, sweep_val,
     os.makedirs(save_dir_ref, exist_ok=True)
     os.makedirs(save_dir_chip, exist_ok=True)
     os.makedirs(save_dir_offset, exist_ok=True)
+    
+    clip = N*16 + 32
 
     with MAUI() as c:
         loop = 0
@@ -204,15 +206,12 @@ def scope_acq(param_name, sweep_val,
                                                         num_samples=num_samples, 
                                                         ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
                                                         chip_channel="C2", chip_edge_slope="NEG", chip_thresh=chip_thresh,
-                                                        hold_time=hold_time, deskew_val=deskew_time)
+                                                        hold_time=hold_time, deskew_val=deskew_time, clip=clip)
             print(f"\tData acquired")
             
             # Add approprite offset to time data
             ref_data[0] = ref_data[0] + time_this_loop
             chip_data[0] = chip_data[0] + time_this_loop
-
-            # When we get a sequence of waveforms, the first one always seems to have some weird voltage spike. We specify here that all the samples from this first acquisition should be disregarded
-            clip = num_samples//3
 
             # See if data works for calculating edge offsets
             try:
@@ -221,7 +220,6 @@ def scope_acq(param_name, sweep_val,
                                     chip_data,
                                     ref_threshold=ref_thresh,
                                     chip_threshold=chip_thresh,
-                                    clip=clip,
                                     mismatch_handling=True,
                                     num_samples=real_num_samples)
                 
@@ -232,8 +230,8 @@ def scope_acq(param_name, sweep_val,
                 np.save(chip_data_file_i, chip_data)
                 
                 # So we don't overflow memory; just for testing
-                # os.remove(ref_data_file_i)
-                # os.remove(chip_data_file_i)
+                os.remove(ref_data_file_i)
+                os.remove(chip_data_file_i)
                 print("\tWaveforms saved")
 
                 # Save offset data to file specific to this loop
@@ -262,9 +260,7 @@ def scope_acq(param_name, sweep_val,
                     
                     os.remove(filepath)
         
-        # Remove the now empty offset values directory
-        os.rmdir(save_dir_offset)
-        
+        # Remove the now empty offset values directory        
         offset_vals_all = np.loadtxt(combined_offset_file)
         print(f"\nTotal # of offsets for this measurement: {len(offset_vals_all)}")
         
@@ -318,15 +314,18 @@ if __name__ == "__main__":
 
     # Set values for scope interactions
     num_samples = int(500) # Number of samples per acquisition segment in the sequence
-    N = 10000 # Number of waveforms per sequence
-    num_loops = 10 # Number of sequences 
+    # Min possible value is 500 Samples, max is 10 MSamples
+
+    N = 10 # Cannot be greater than 5000
+    num_loops = 1 # Number of sequences 
     
-    div_time = 10e-9 # There are 10 divisons per acquisition
+    div_time = 5e-9 # There are 10 divisons per acquisition
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
     deskew_time = 30e-9 # Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
 
-    ref_thresh = .05 # Voltage thresholds for reference and chip signals
-    chip_thresh = 0.5
+    # Voltage thresholds for reference and chip signals
+    ref_thresh = .05#.08
+    chip_thresh = 0.5#0
 
     std_cutoff = 3
 
@@ -353,7 +352,12 @@ if __name__ == "__main__":
                     
                     t0 = time.time()
                     snspd.set_register(**registers)
-                    snspd.TX_reg()
+                    set = snspd.TX_reg()
+
+                    if set != True:
+                        print(f"{param} not set correctly")
+                        break
+
                     print(f"\nSet {param} = {val}")
                     
                     stdv_val = scope_acq(param, sweep_val=val,
@@ -380,8 +384,8 @@ if __name__ == "__main__":
             )
         print("\nSweep completed successfully!")
 
-    plt.plot(param_val_list, jitter_list)
-    plt.xlabel("DCcompensate vals")
+    plt.plot(param_val_list, jitter_list, "-bo")
+    plt.xlabel("VRL vals")
     plt.ylabel("Delay Stdv")
-    plt.title("Delay Standard Deviation (Jitter) vs DCcompensate Params")
+    plt.title("Delay Standard Deviation (Jitter) vs DCcomp")
     plt.show()

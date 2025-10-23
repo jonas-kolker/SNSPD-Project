@@ -7,15 +7,15 @@ chip_data = np.load("C:\LeCroy\ScopeData\ChipWaveforms_test\\chip_data_000.npy")
 
 num_samples= int(1e3)
 
-clip = num_samples//3
+print(len(ref_data[0]))
 
-# fig, ax = plt.subplots(2,1)
-# ax[0].plot(ref_data[0][clip:],ref_data[1][clip:])
-# ax[0].set_title("Ref signal")
-# ax[1].plot(chip_data[0][clip:],chip_data[1][clip:])
-# ax[1].set_title("Chip signal")
-# print(ref_data[0].shape)
-# plt.show()
+fig, ax = plt.subplots(2,1)
+ax[0].plot(ref_data[1])
+ax[0].set_title("Ref signal")
+ax[1].plot(chip_data[1])
+ax[1].set_title("Chip signal")
+print(ref_data[0].shape)
+plt.show()
 
 # offset_vals = ss.get_offsets(ref_data,
 #                             chip_data,
@@ -25,11 +25,11 @@ clip = num_samples//3
 #                             mismatch_handling=True,
 #                             num_samples=int(5e3))
 
-offset_vals = np.loadtxt("C:\LeCroy\ScopeData\\offset_values_all_test.txt")
-fig, hist, bins =  ss.make_histogram_and_gaussian(offset_vals, 
-                                                  stdv_cutoff=0, 
-                                                  hist_bins=40,
-                                                  plot=True)
+# offset_vals = np.loadtxt("C:\LeCroy\ScopeData\\offset_values_all_test.txt")
+# fig, hist, bins =  ss.make_histogram_and_gaussian(offset_vals, 
+#                                                   stdv_cutoff=0, 
+#                                                   hist_bins=40,
+#                                                   plot=True)
 
 plt.show()
 

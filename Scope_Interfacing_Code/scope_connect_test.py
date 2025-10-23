@@ -13,8 +13,8 @@ if __name__=="__main__":
     num_samples = int(500) # Number of samples per acquisition segment in the sequence
     # Min possible value is 500 Samples, max is 10 MSamples
 
-    N = 10000 # Number of acquisitions per sequence
-    num_loops = 10 # Number of sequences 
+    N = 1000 # Cannot be greater than 5000
+    num_loops = 1 # Number of sequences 
     
     div_time = 5e-9 # There are 10 divisons per acquisition
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
@@ -77,19 +77,22 @@ if __name__=="__main__":
             # Get the absolute time wrt previous loops so that time data between files is distinct
             time_this_loop = N*10*div_time*loop # Number of waveforms * 10 time divisions per waveform * loop number
             
+            # To clip out initial metadata
+            clip = N*16 + 32 # 16 bytes per trigger event + 4 bytes for each float it stores (we guessed 8)
+
             # Get N waveform sequences from both channels and also the true number of samples per acquisition
             ref_data, chip_data, real_num_samples = ss.extract_waves_multi_seq(c, 
                                                         N=N,
                                                         num_samples=num_samples, 
                                                         ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
                                                         chip_channel="C2", chip_edge_slope="NEG", chip_thresh=chip_thresh,
-                                                        hold_time=hold_time, deskew_val=deskew_time)
+                                                        hold_time=hold_time, deskew_val=deskew_time, clip=clip)
             print(f"\tData acquired")
             print(f"Shape of ref_data is {ref_data.shape}")
 
                 # Number of initial samples to discard when processing data
             # There's consistently a weird signal spike during the first acquisition, so we discard some data
-            clip = 0#real_num_samples
+            #real_num_samples
             
             # Add approprite offset to time data
             ref_data[0] = ref_data[0] + time_this_loop
@@ -102,10 +105,10 @@ if __name__=="__main__":
                                 chip_data,
                                 ref_threshold=ref_thresh,
                                 chip_threshold=chip_thresh,
-                                clip=clip,
                                 mismatch_handling=True,
                                 num_samples=real_num_samples)
             
+            # plt.close()
             print(f"\tOffsets calculated")
             
             # Save wave data to files specific to this loop
