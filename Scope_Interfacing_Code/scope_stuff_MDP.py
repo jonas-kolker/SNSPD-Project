@@ -262,6 +262,64 @@ def chunk_data(data_array, num_samples):
 
     return chunks 
 
+def get_crossing_inds_w_historesis(data, threshold, slope, hysteresis=0.1):
+    """
+    Find the indices in a data array where a rising or falling edge crosses some threshold with state-based hysteresis.
+    Hysteresis prevents false triggering by requiring the signal to cross different thresholds depending on the current state.
+   
+    For falling edge detection:
+    - Initially looks for signal dropping below threshold
+    - Once detected, switches to looking for signal dropping below threshold-hysteresis
+    - Only after crossing threshold-hysteresis, starts looking for next falling edge above threshold
+   
+    For rising edge detection:
+    - Initially looks for signal rising above threshold
+    - Once detected, switches to looking for signal rising above threshold+hysteresis
+    - Only after crossing threshold+hysteresis, starts looking for next rising edge below threshold
+   
+    Parameters:
+        data (np.array): Array of signal data
+        threshold (float): Base threshold value for crossing detection
+        slope (str): Either "POS" or "NEG"
+        hysteresis (float): Hysteresis value to prevent false triggering (default: 0.1)
+   
+    Returns:
+        crossings_indices (np.array): An array of indices where a crossing occurs
+    """
+    crossings_indices = []
+   
+    if slope == "NEG":
+        # Falling edge detection with hysteresis
+        state = "above"  # Start above threshold
+        for i in range(1, len(data)):
+            if state == "above" and data[i-1] >= threshold and data[i] < threshold:
+                # Detected falling edge crossing threshold
+                crossings_indices.append(i-1)
+                state = "below_threshold"
+            elif state == "below_threshold" and data[i-1] >= threshold-hysteresis and data[i] < threshold-hysteresis:
+                # Signal has crossed below threshold-hysteresis, ready for next detection
+                state = "below_hysteresis"
+            elif state == "below_hysteresis" and data[i-1] < threshold and data[i] >= threshold:
+                # Signal has risen back above threshold, ready for next falling edge
+                state = "above"
+               
+    elif slope == "POS":
+        # Rising edge detection with hysteresis
+        state = "below"  # Start below threshold
+        for i in range(1, len(data)):
+            if state == "below" and data[i-1] <= threshold and data[i] > threshold:
+                # Detected rising edge crossing threshold
+                crossings_indices.append(i-1)
+                state = "above_threshold"
+            elif state == "above_threshold" and data[i-1] <= threshold+hysteresis and data[i] > threshold+hysteresis:
+                # Signal has crossed above threshold+hysteresis, ready for next detection
+                state = "above_hysteresis"
+            elif state == "above_hysteresis" and data[i-1] > threshold and data[i] <= threshold:
+                # Signal has fallen back below threshold, ready for next rising edge
+                state = "below"
+   
+    return np.array(crossings_indices)
+
 def get_crossing_inds(data, threshold, slope):
     """
     Find the indices in a data array where a rising or falling edge crosses some threshold
@@ -318,10 +376,12 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
     chip_array = chip_array[:min_length]
 
     # Find indices where signals cross the threshold (rising edge detection for ref)
-    ref_crossings_indices  = get_crossing_inds(ref_array, ref_threshold, "POS")
+    ref_crossings_indices  = get_crossing_inds_w_historesis(ref_array, ref_threshold, "POS", hysteresis=.06)
+    # ref_crossings_indices = get_crossing_inds(ref_array, ref_threshold, "POS")
     
     # Find indices where signals cross the threshold (falling edge detection for chip)
-    chip_crossings_indices = get_crossing_inds(chip_array, chip_threshold, "NEG")
+    chip_crossings_indices = get_crossing_inds_w_historesis(chip_array, chip_threshold, "NEG", hysteresis=.2)
+    # chip_crossings_indices = get_crossing_inds(chip_array, chip_threshold, "NEG")
 
     # Check that each channel has corresponding falling edge events
     print(f"\tNumber of reference threshold crossings: {len(ref_crossings_indices)}")
@@ -354,38 +414,20 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
 
             # Try to get offset value for each individual acquisition segment. If there's a mismatch or error, discard that segment
             for i in range(len(ref_waveforms)):
+                
                 seg_ref_array = ref_waveforms[i]
                 seg_chip_array = chip_waveforms[i]
                 seg_time_array = waveform_time_vals[i]
 
                 # For each segment, find indices of threshold crossing (rising edge for ref)
-                seg_ref_crossing_indices  = get_crossing_inds(seg_ref_array, ref_threshold, "POS")
+                seg_ref_crossing_indices  = get_crossing_inds_w_historesis(seg_ref_array, ref_threshold, "POS", hysteresis=.06)
+                # seg_ref_crossing_indices = get_crossing_inds(seg_ref_array, ref_threshold, "POS")
 
                 # print(f"\n\nRef edge crossing indices: {seg_ref_crossing_index}")
 
                 # For each segment, find indices of threshold crossing (falling edge for chip)
-                seg_chip_crossing_indices = get_crossing_inds(seg_chip_array, chip_threshold, "NEG")
-
-                # -  - - -- -- - - - - -- - - - FOR DEBUGGING - - - - - - - - - - - -- - --- - 
-                # fig, ax = plt.subplots(2,1)
-                
-                # ymax_ref = np.max(seg_ref_array)
-                # ymin_ref = np.min(seg_ref_array)
-                # ymax_chip = np.max(seg_chip_array)
-                # ymin_chip = np.min(seg_chip_array)                
-                
-                # ax[0].plot(seg_time_array, seg_ref_array)
-                # ax[0].vlines(seg_time_array[seg_ref_crossing_index], ymin_ref, ymax_ref, colors="red")
-                # ax[0].set_xlim(min(seg_time_array), max(seg_time_array))
-                # ax[0].set_title("Ref signal")
-                # ax[1].plot(seg_time_array, seg_chip_array)
-                # ax[1].vlines(seg_time_array[seg_chip_crossing_index], ymin_chip, ymax_chip, colors="red")
-                # ax[1].set_xlim(min(seg_time_array), max(seg_time_array))
-                # ax[1].set_title("Chip signal")
-                # fig.tight_layout()
-                # plt.plot()
-
-                # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -- -- - -
+                seg_chip_crossing_indices = get_crossing_inds_w_historesis(seg_chip_array, chip_threshold, "NEG", hysteresis=0.2)
+                # seg_chip_crossing_indices = get_crossing_inds(seg_chip_array, chip_threshold, "NEG")
 
                 # There should be the same number of crossings in each channel, and that number should be 1 per individaul segment
                 seg_num_ref_crossings = len(seg_ref_crossing_indices)
@@ -412,7 +454,8 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
                     
                     offset_vals.append(seg_offset)
                     ref_crossing_times.append(seg_ref_crossing_time)
-
+            
+            print(f"\tAfter processing, number of crossings for both channels set to {len(offset_vals)}")
             return np.asarray(offset_vals)
     # - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - - - -  - - - - - - - - - - - - - 
     

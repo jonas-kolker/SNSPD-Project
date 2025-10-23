@@ -13,7 +13,7 @@ if __name__=="__main__":
     num_samples = int(500) # Number of samples per acquisition segment in the sequence
     # Min possible value is 500 Samples, max is 10 MSamples
 
-    N = 1000 # Cannot be greater than 5000
+    N = 100 # Cannot be greater than 5000
     num_loops = 1 # Number of sequences 
     
     div_time = 5e-9 # There are 10 divisons per acquisition
@@ -149,6 +149,6 @@ if __name__=="__main__":
         print(f"\nAverage offset btwn edges: {mean_val}")
         print(f"Stdv of offset time: {std_val}")
 
-        fig, hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=100, stdv_cutoff=3, plot=True)
+        fig, hist, bin_edges = ss.make_histogram_and_gaussian(offset_vals_all, hist_bins=100, stdv_cutoff=0, plot=True)
         # plt.hist(np.mod(ref_crossing_times, 50e-9))
         # plt.show()
