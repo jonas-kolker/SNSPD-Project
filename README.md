@@ -150,4 +150,4 @@ scope_acq(param_name, sweep_val, num_samples, N, num_loops, div_time, hold_time,
 
 Collects num_loops sequences of N waveforms with num_samples points, saves .npy files for ref/chip and offset text files, then makes hist_*.png.
 
-![main.py overview](Figures/experiment_flowchart.jpeg)
+![main.py overview](Figures/experiment_run.png)
