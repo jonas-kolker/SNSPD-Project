@@ -122,11 +122,11 @@ def scope_acq(param_name, sweep_val,
               div_time = 50e-9, hold_time = 900e-9,
               ref_channel="C1", chip_channel="C2",
               ref_thresh = .08, chip_thresh = 0.00, 
-              delete_prev_data = True,
-              std_cutoff=5, deskew_time=30e-9):   
+              std_cutoff=5, deskew_time=30e-9,
+              hist_bins = 900):   
     
     """
-    Acquires waveform data from the scope, triggered by the rising edge of a reference signal followed by the falling edge of a second (chip) signal.
+    Acquires -- and processes -- waveform data from the scope, triggered by the rising edge of a reference signal followed by the falling edge of a second (chip) signal.
     Waveform data is acquired in sequence bursts - the number of sequences given by num_loops. A sequence will contain N waveforms, and each 
     waveform is made up of num_samples number of datapoints. Sequence data will be saved in folders corresponding to the value of the chip parameter 
     of interest at that time.
@@ -146,13 +146,12 @@ def scope_acq(param_name, sweep_val,
         ref_channel, chip_channel (str): Scope channels for ref signal, chip signal
         ref_thresh, chip_thresh (float): Voltage thresholds for edges (rising edge for ref, falling edge for chip) used to trigger events and calculate delays
 
-        delet_prev_data (bool): Whether or not to delete old folders with the same names as the ones we'll be using (best to keep True)
         std_cutoff (int): Any delay data more than this many stdvs from the mean will be discarded and not considered. Removes extreme outlier data.
         deskew_time (int): Delay ref data by this much in acquisition. Helps align edges in both channels so less data to be collected. 
     
     Returns:
-        offset_stdv (float): The standard deviation of the offsets. If std_cutoff isn't 0, this will be the filtered data value
-    
+        offset_stdv (float): The fitted standard deviation (jitter) of the offsets. If std_cutoff isn't 0, this will be the filtered data value
+        offset_stdv_err (float): The error associated with this fitted value
     """
     
     # Make appropriate subdirectories for storing data from each loop
@@ -181,7 +180,7 @@ def scope_acq(param_name, sweep_val,
         loop = 0
         
         while loop < num_loops:
-            print(f"Loop {loop}")
+            print(f"{param}: {sweep_val}: Loop {loop}")
             # Reset scope settings
             c.reset()
 
@@ -267,18 +266,16 @@ def scope_acq(param_name, sweep_val,
         # print(f"\nAverage offset btwn edges: {mean_val}")
         # print(f"Stdv of offset time: {std_val}")
 
-        fig, hist, bin_edges, stdv_val = ss.make_histogram_and_gaussian(offset_vals_all, 
-                                                                         hist_bins=100, 
-                                                                         stdv_cutoff=std_cutoff,
-                                                                         return_stdv=True
-                                                                         )
+        fig, offset_stdv, offset_stdv_err, bin_width = ss.make_histogram_and_gaussian(offset_vals_all, 
+                                                                         hist_bins=hist_bins, 
+                                                                         stdv_cutoff=std_cutoff)
 
         save_path = os.path.join(save_dir, f"hist_{param_name}{sweep_val}.png")
 
         fig.savefig(save_path)
         plt.close(fig)
 
-        return stdv_val
+        return offset_stdv, offset_stdv_err
 
 if __name__ == "__main__":
 
@@ -316,8 +313,8 @@ if __name__ == "__main__":
     num_samples = int(500) # Number of samples per acquisition segment in the sequence
     # Min possible value is 500 Samples, max is 10 MSamples
 
-    N = 10 # Cannot be greater than 5000
-    num_loops = 1 # Number of sequences 
+    N = 5000 # Cannot be greater than 5000
+    num_loops = 10 # Number of sequences 
     
     div_time = 5e-9 # There are 10 divisons per acquisition
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
@@ -326,10 +323,13 @@ if __name__ == "__main__":
     # Voltage thresholds for reference and chip signals
     ref_thresh = .05#.08
     chip_thresh = 0.5#0
-
-    std_cutoff = 3
+    
+    # For plotting
+    std_cutoff = 3 # Exclude data more than this many raw stdvs from mean
+    hist_bins = 100 # How many bins to include in histogram
 
     jitter_list = []
+    jitter_err_list = []
     param_val_list = []
 
     # Name global variable where everything will be stored
@@ -360,7 +360,8 @@ if __name__ == "__main__":
 
                     print(f"\nSet {param} = {val}")
                     
-                    stdv_val = scope_acq(param, sweep_val=val,
+                    # Acquire data from scope and calculate jitter
+                    stdv_val, stdv_err = scope_acq(param, sweep_val=val,
                                         num_samples=num_samples, N=N, num_loops=num_loops,
                                         div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
                                         ref_thresh=ref_thresh, chip_thresh=chip_thresh, 
@@ -369,7 +370,10 @@ if __name__ == "__main__":
                     elapsed = time.time() - t0
                     per_value_times.append(elapsed)
                     param_val_list.append(val)
+                    
+                    # Store jitter values
                     jitter_list.append(stdv_val)
+                    jitter_err_list.append(stdv_err)
 
             # --- per-parameter summary ---
             num_points = len(per_value_times)
@@ -384,7 +388,10 @@ if __name__ == "__main__":
             )
         print("\nSweep completed successfully!")
 
-    plt.plot(param_val_list, jitter_list, "-bo")
+    print(f"Jitter vals (stdv): {jitter_list}")
+    print(f"Jitter uncertainties: {jitter_err_list}")
+
+    plt.errorbar(param_val_list, jitter_list, jitter_err_list, fmt="-bo")
     plt.xlabel("VRL vals")
     plt.ylabel("Delay Stdv")
     plt.title("Delay Standard Deviation (Jitter) vs DCcomp")

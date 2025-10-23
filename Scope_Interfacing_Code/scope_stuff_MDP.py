@@ -208,7 +208,7 @@ def extract_waves_multi_seq(scope, N, num_samples,
 
     # Get the actual number of samples as limited by the scope
     real_num_samples = scope.query("""VBS? 'return=app.acquisition.horizontal.maxsamples'""")
-    print(f"\tReal number of samples per acquisition is {real_num_samples}")
+    # print(f"\tReal number of samples per acquisition is {real_num_samples}")
 
     num_samples = int(real_num_samples)
 
@@ -376,12 +376,12 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
     chip_array = chip_array[:min_length]
 
     # Find indices where signals cross the threshold (rising edge detection for ref)
-    ref_crossings_indices  = get_crossing_inds_w_historesis(ref_array, ref_threshold, "POS", hysteresis=.06)
-    # ref_crossings_indices = get_crossing_inds(ref_array, ref_threshold, "POS")
+    # ref_crossings_indices  = get_crossing_inds_w_historesis(ref_array, ref_threshold, "POS", hysteresis=.06)
+    ref_crossings_indices = get_crossing_inds(ref_array, ref_threshold, "POS")
     
     # Find indices where signals cross the threshold (falling edge detection for chip)
-    chip_crossings_indices = get_crossing_inds_w_historesis(chip_array, chip_threshold, "NEG", hysteresis=.2)
-    # chip_crossings_indices = get_crossing_inds(chip_array, chip_threshold, "NEG")
+    # chip_crossings_indices = get_crossing_inds_w_historesis(chip_array, chip_threshold, "NEG", hysteresis=.2)
+    chip_crossings_indices = get_crossing_inds(chip_array, chip_threshold, "NEG")
 
     # Check that each channel has corresponding falling edge events
     print(f"\tNumber of reference threshold crossings: {len(ref_crossings_indices)}")
@@ -420,14 +420,14 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
                 seg_time_array = waveform_time_vals[i]
 
                 # For each segment, find indices of threshold crossing (rising edge for ref)
-                seg_ref_crossing_indices  = get_crossing_inds_w_historesis(seg_ref_array, ref_threshold, "POS", hysteresis=.06)
-                # seg_ref_crossing_indices = get_crossing_inds(seg_ref_array, ref_threshold, "POS")
+                # seg_ref_crossing_indices  = get_crossing_inds_w_historesis(seg_ref_array, ref_threshold, "POS", hysteresis=.06)
+                seg_ref_crossing_indices = get_crossing_inds(seg_ref_array, ref_threshold, "POS")
 
                 # print(f"\n\nRef edge crossing indices: {seg_ref_crossing_index}")
 
                 # For each segment, find indices of threshold crossing (falling edge for chip)
-                seg_chip_crossing_indices = get_crossing_inds_w_historesis(seg_chip_array, chip_threshold, "NEG", hysteresis=0.2)
-                # seg_chip_crossing_indices = get_crossing_inds(seg_chip_array, chip_threshold, "NEG")
+                # seg_chip_crossing_indices = get_crossing_inds_w_historesis(seg_chip_array, chip_threshold, "NEG", hysteresis=0.2)
+                seg_chip_crossing_indices = get_crossing_inds(seg_chip_array, chip_threshold, "NEG")
 
                 # There should be the same number of crossings in each channel, and that number should be 1 per individaul segment
                 seg_num_ref_crossings = len(seg_ref_crossing_indices)
@@ -467,7 +467,7 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
         
         return offset_vals
 
-def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cutoff=0, return_stdv=False):
+def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cutoff=0):
     """
     Create a histogram of the offset values and fit a gaussian to it
 
@@ -475,65 +475,74 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
         offset_vals (np.array): Array of time differences between falling edge events in chip and reference
         plot (bool): Whether to plot the histogram and fitted gaussian
         hist_bins (int): Number of bins to use in the histogram
-        stdv_cutoff (int): Filters out data more than some this many sigmas from the mean. Set to 0 for no cutoff.
-        return_stdv (bool): Whether or not to return filtered data stdv
+        stdv_cutoff (int): Filters out data more than some this many sigmas from the mean. Set to 0 for no cutoff.return_stdv (bool): Whether or not to return filtered data stdv
     Returns:
         fig (plt.Figure): Pyplot figure object that can be saved/displayed
-        hist (np.array): Array of histogram bin counts
-        bin_edges (np.array): Array of histogram bin edges 
-        filt_stdv (float): Standard deviation of filtered data
+        sigma_fit (float): Fitted standard deviation of filtered data
+        sigma_err (float): Error associated with fitted sigma_fit
+        bin_width (float): Width of each bin in seconds
         
         
     """
+    
+    # Compute mean and std of the raw data
+    mean_raw = np.mean(offset_vals)
+    std_raw = np.std(offset_vals)
+
     # Omit outlier data for prettier histogram if cutoff not set to 0
     if stdv_cutoff != 0:
-         mask = np.abs(offset_vals-np.mean(offset_vals)) < stdv_cutoff * np.std(offset_vals)
+        sigma_cut = stdv_cutoff 
+        mask = np.abs(offset_vals - mean_raw) < sigma_cut * std_raw
     else:
-        mask = np.ones_like(offset_vals) == 1
-    
-    filtered_vals = offset_vals[mask]
-    hist, bin_edges = np.histogram(filtered_vals, bins=hist_bins)
+        mask = np.abs(offset_vals == offset_vals)
+    filtered_data = offset_vals[mask]
 
-    bin_width = bin_edges[1] - bin_edges[0]
-    
-    mean = np.mean(filtered_vals)
-    stdv = np.std(filtered_vals)
-    A = np.max(hist)
+    print(f"Removed {len(offset_vals) - len(filtered_data)} outliers ({len(filtered_data)} kept)")
 
+    # === Define Gaussian function ===
     def gaussian(x, amp, mu, sigma):
-        
-        # We multiply by bin width to account for the fact that the gaussian here is measuring
-        # counts, NOT a probability distribution
         return amp * np.exp(-0.5 * ((x - mu) / sigma)**2)
 
-    # Create histogram and fitted gaussian
-    fig, ax = plt.subplots(figsize=(8,5))
-    ax.hist(filtered_vals, bins=hist_bins)
+    # Create histogram (using filtered data)
+    hist_bins = hist_bins
+    hist, bin_edges = np.histogram(filtered_data, bins=hist_bins, density=False)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    bin_width = bin_edges[1] - bin_edges[0]
+
+    # Initial guesses for the Gaussian fit 
+    A_guess = np.max(hist)
+    mu_guess = np.mean(filtered_data)
+    sigma_guess = np.std(filtered_data)
+
+    #  Fit Gaussian 
+    popt, pcov = curve_fit(gaussian, bin_centers, hist, p0=[A_guess, mu_guess, sigma_guess])
+    A_fit, mu_fit, sigma_fit = popt
+    perr = np.sqrt(np.diag(pcov))
+    A_err, mu_err, sigma_err = perr
+
+    #  Generate fitted Gaussian curve 
+    x_fit = np.linspace(np.min(filtered_data), np.max(filtered_data), 1000)
+    y_fit = gaussian(x_fit, A_fit, mu_fit, sigma_fit)
     
-    x_fit = np.linspace(min(bin_edges), max(bin_edges), 1000)
-    y_fit = gaussian(x_fit, A, mean, stdv)
-    
-    # ax.plot(x_fit, y_fit, 'r--', label= r'FWHM=' + f'{ 2*np.sqrt(2*np.log(2)) *stdv:.2e}')
-    ax.plot(x_fit, y_fit, 'r--', label= r'$\sigma=$' + f'{stdv:.2e}')
-    ax.set_xlabel('Time Offset (s)')
-    ax.set_ylabel('Counts')
-    ax.legend()
-    
-    if stdv_cutoff != 0 :
-        ax.set_title(f'Histogram of Time Offsets for data w/in {stdv_cutoff}$\sigma$ of mean')
+    # Create plot
+    fig = plt.figure(figsize=(8,5))
+    plt.hist(filtered_data, bins=hist_bins, color='skyblue', alpha=0.6, label='Filtered Data')
+    plt.plot(x_fit, y_fit, 'r--', linewidth=2,
+            label=fr'Fit: σ={sigma_fit:.2e}, FWHM={2*np.sqrt(2*np.log(2))*sigma_fit:.2e}')
+    plt.xlabel('Offset (s)')
+    plt.ylabel('Counts')
+    plt.legend()
+    if stdv_cutoff !=0:
+        plt.title(f'Histogram of Offset Values with Gaussian Fit ({sigma_cut}σ outlier removal)')
     else:
-        ax.set_title(f'Histogram of Time Offsets for data')
+            plt.title(f"Histogram of Offset Values with Gaussian Fit")
+    plt.tight_layout()
 
-    print(f"Filtered data mean: {mean}")
-    print(f"Filtered data stdv: {stdv}")
+    if plot:
+        plt.show()
 
-    if plot:   
-        plt.show() 
+    return fig, sigma_fit, sigma_err, bin_width
 
-    if return_stdv:
-        return fig, hist, bin_edges, stdv
-    else:
-        return fig, hist, bin_edges
 
 def calculate_mean_and_std(offset_value_list, deskew_val=30e-9):
 
