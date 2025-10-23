@@ -388,8 +388,8 @@ if __name__ == "__main__":
             )
         print("\nSweep completed successfully!")
 
-    print(f"Jitter vals (stdv): {jitter_list}")
-    print(f"Jitter uncertainties: {jitter_err_list}")
+    fwhm_vals = np.asarray(jitter_list) * 2*np.sqrt(2*np.log(2))
+    fwhm_errs = np.asarray(jitter_err_list) * 2*np.sqrt(2*np.log(2))
 
     plt.errorbar(param_val_list, jitter_list, jitter_err_list, fmt="-bo")
     plt.xlabel("VRL vals")

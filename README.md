@@ -79,12 +79,12 @@ However, a very common problem arises where multiple detection events are identi
 
 In the figure above, the code detected 2 events for the reference signal, but only one for the chip. In this case, the function would simply move past this portion of the sequence and go on to the next. 
 
-**_This can lead to the majority of data being discarded!!_**
+What we do now is take the average of the multiple detection events and use that as the location of the edge. While this works in instances like the one above, it's not robust to all edge cases.
 
-The frequency and severity of this issue varys depending on the scope settings, but it's one of the key issues to address moving forward.
+The frequency and severity of this issue varies depending on the scope settings, but it's one of the key issues to address moving forward.
 
 ### Setting samples per acquisition 
-The maximum number of samples acquired in each acquisition segment can be set manually in `main.py` with the `num_samples` parameter. However the scope will convert this to the nearest acceptable value. The specific allowed sample values will be limited by memory constraints and internal settings based on other parameters you may set. 
+The maximum number of samples acquired in each acquisition segment can be set manually in `main.py` with the `num_samples` parameter. However the scope will convert this to its nearest acceptable value. The specific allowed sample values will be limited by memory constraints and internal settings based on other parameters you may set. 
 
 For example, if you set the number of acquisitions per sequence to be `N=10000`, the allowed maximum number of samples per acquisition will likely be much lower than with a smaller number of acquisitions.
 
