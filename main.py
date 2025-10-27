@@ -77,23 +77,23 @@ def sweep_values(param_name):
 
     ranges = {
         "DCcompensate": range(0, 8),
-        "DFBamp": range(1, 16),
-        "DSNSPD": range(1, 128),
-        "DAQSW": range(1, 128),
+        # "DFBamp": range(1, 16),
+        "DSNSPD": range(10, 28),
+        # "DAQSW": range(1, 128),
         "VRL": range(1, 32),
-        "Dbias_NMOS": range(1, 256),
-        "DBias_internal": [0, 1],
-        "Dbias_fb_amp": range(1, 128),
-        "Dbias_comp": range(1, 128),
-        "Dbias_PMOS": range(1, 201),
-        "Dbias_ampNMOS": range(1, 128),
-        "Ddelay": range(1, 128),
-        "Dcomp": range(1, 16),
-        "Analoga": ['None', 'Vref', 'Vamp', 'Vcomp'],
-        "Dbias_ampPMOS": range(1, 128),
-        "DCL": range(1, 16),
-        "Dbias_ampn1": range(1, 128),
-        "Dbias_ampn2": range(1, 128)
+        "Dbias_NMOS": range(1, 6),
+        # "DBias_internal": [0, 1],
+        # "Dbias_fb_amp": range(1, 128),
+        # "Dbias_comp": range(1, 128),
+        "Dbias_PMOS": range(1, 6),
+        # "Dbias_ampNMOS": range(1, 128),
+        # "Ddelay": range(1, 128),
+        "Dcomp": range(2, 16),
+        # "Analoga": ['None', 'Vref', 'Vamp', 'Vcomp'],
+        # "Dbias_ampPMOS": range(1, 128),
+        "DCL": range(0, 16),
+        # "Dbias_ampn1": range(1, 128),
+        # "Dbias_ampn2": range(1, 128)
     }
     return ranges.get(param_name, [0])
 
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     with Snspd(arduino_port) as snspd:
         print("\nStarting parameter sweep")
 
-        for param in ["Dbias_comp"]:  # "DCcompensate", "VRL", "Dbias_comp", "Dbias_fb_amp", "DCL"
+        for param in ["Dcomp"]:  # "DCcompensate", "DSNSPD", "VRL", "Dbias_NMOS", "Dbias_PMOS",  "Dcomp", "DCL"
             print(f"Sweeping parameter: {param}")
             per_value_times = []
             jitter_list = []
@@ -392,11 +392,18 @@ if __name__ == "__main__":
             fwhm_vals = np.asarray(jitter_list) * 2*np.sqrt(2*np.log(2))
             fwhm_errs = np.asarray(jitter_err_list) * 2*np.sqrt(2*np.log(2))
 
-            plt.errorbar(param_val_list, jitter_list, jitter_err_list, fmt="-bo")
+            plt.errorbar(param_val_list, jitter_list, jitter_err_list, fmt='o-',              # circle markers with a connecting line
+                            ecolor='blue',    # color of the error bars
+                            elinewidth=1,          # thinner error bar lines
+                            capsize=4,             # small caps at the end of error bars
+                            capthick=1,            # thickness of the caps
+                            markerfacecolor='blue',
+                            markeredgecolor='blue',
+                            markersize=5)
             plt.xlabel(f"{param} vals")
             plt.ylabel("Delay Stdv")
             plt.title(f"Delay Standard Deviation (Jitter) vs {param}")
-            plt.savefig("jitter_vs_param.png", dpi=300, bbox_inches="tight")
+            plt.savefig(f"jitter_vs_{param}.png", dpi=300, bbox_inches="tight")
             plt.close()
         print("\nSweep completed successfully!")
 

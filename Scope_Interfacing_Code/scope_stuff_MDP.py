@@ -433,6 +433,20 @@ def get_offsets(ref_data, chip_data, ref_threshold, chip_threshold, mismatch_han
                 seg_num_ref_crossings = len(seg_ref_crossing_indices)
                 seg_num_chip_crossings = len(seg_chip_crossing_indices)
 
+                # r_y_min, r_y_max = np.min(seg_ref_array), np.max(seg_ref_array)
+                # c_y_min, c_y_max = np.min(seg_chip_array), np.max(seg_chip_array)
+                # fig, axs = plt.subplots(nrows=2, ncols=1)
+                # axs[0].plot(seg_time_array, seg_ref_array)
+                # axs[0].set_title(f"Ref signal (segment {i})")
+                # # axs[0].vlines(seg_ref_crossing_indices, ymin=r_y_min, ymax=r_y_max, colors="r")
+                # axs[1].plot(seg_time_array, seg_chip_array)
+                # # axs[1].vlines(seg_chip_crossing_indices, ymin=c_y_min, ymax=c_y_max, colors="r")
+                # axs[1].set_title(f"Chip signal (segment {i})")
+                # fig.tight_layout()
+                # plt.show()
+                # input()
+                # plt.close(fig)
+
                 # if (seg_num_chip_crossings != seg_num_ref_crossings) or (seg_num_chip_crossings != 1) or (seg_num_ref_crossings != 1):
                 if seg_num_ref_crossings == 0 or seg_num_chip_crossings == 0:    
                     pass
