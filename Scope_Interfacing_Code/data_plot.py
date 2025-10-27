@@ -26,10 +26,11 @@ from scipy.optimize import curve_fit
 #                             mismatch_handling=True,
 #                             num_samples=int(5e3))
 
-data = np.loadtxt("C:\LeCroy\ScopeData\\offset_values_all_test.txt")
-# fig, sigma, sigma_err, bin_width =  ss.make_histogram_and_gaussian(data, 
-#                                                   stdv_cutoff=0, 
-#                                                   hist_bins=900,
-#                                                   plot=True)
-# print(f"Bin width: {bin_width}")
+data = np.loadtxt("C:\LeCroy\ScopeData\offset_values_all_Dbias_comp3.txt")
+
+fig, sigma, sigma_err, bin_width =  ss.make_histogram_and_gaussian(data, 
+                                                  stdv_cutoff=0, 
+                                                  hist_bins=500,
+                                                  plot=True)
+print(f"Bin width: {bin_width}")
 

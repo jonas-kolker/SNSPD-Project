@@ -78,22 +78,22 @@ def sweep_values(param_name):
     ranges = {
         "DCcompensate": range(0, 8),
         "DFBamp": range(1, 16),
-        "DSNSPD": range(0, 128),
-        "DAQSW": range(0, 128),
-        "VRL": range(0, 32),
-        "Dbias_NMOS": range(0, 256),
+        "DSNSPD": range(1, 128),
+        "DAQSW": range(1, 128),
+        "VRL": range(1, 32),
+        "Dbias_NMOS": range(1, 256),
         "DBias_internal": [0, 1],
-        "Dbias_fb_amp": range(0, 128),
-        "Dbias_comp": range(0, 128),
-        "Dbias_PMOS": range(0, 201),
-        "Dbias_ampNMOS": range(0, 128),
-        "Ddelay": range(0, 128),
-        "Dcomp": range(0, 16),
+        "Dbias_fb_amp": range(1, 128),
+        "Dbias_comp": range(1, 128),
+        "Dbias_PMOS": range(1, 201),
+        "Dbias_ampNMOS": range(1, 128),
+        "Ddelay": range(1, 128),
+        "Dcomp": range(1, 16),
         "Analoga": ['None', 'Vref', 'Vamp', 'Vcomp'],
-        "Dbias_ampPMOS": range(0, 128),
-        "DCL": range(0, 16),
-        "Dbias_ampn1": range(0, 128),
-        "Dbias_ampn2": range(0, 128)
+        "Dbias_ampPMOS": range(1, 128),
+        "DCL": range(1, 16),
+        "Dbias_ampn1": range(1, 128),
+        "Dbias_ampn2": range(1, 128)
     }
     return ranges.get(param_name, [0])
 
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     D_code = int(round(SNSPD_Dcode * 5 / 7))
 
     parameters = dict(
-        DCcompensate=2,
+        DCcompensate=4,
         DFBamp=1,
         DSNSPD=SNSPD_Dcode,
         DAQSW=RAQSW,
@@ -328,9 +328,9 @@ if __name__ == "__main__":
     std_cutoff = 3 # Exclude data more than this many raw stdvs from mean
     hist_bins = 100 # How many bins to include in histogram
 
-    jitter_list = []
-    jitter_err_list = []
-    param_val_list = []
+    # jitter_list = []
+    # jitter_err_list = []
+    # param_val_list = []
 
     # Name global variable where everything will be stored
     save_dir = "C:\\LeCroy\\ScopeData"
@@ -341,39 +341,42 @@ if __name__ == "__main__":
     with Snspd(arduino_port) as snspd:
         print("\nStarting parameter sweep")
 
-        for param in parameters.keys():
+        for param in ["Dbias_comp"]:  # "DCcompensate", "VRL", "Dbias_comp", "Dbias_fb_amp", "DCL"
             print(f"Sweeping parameter: {param}")
-            per_value_times = []      # seconds for each sweep value
+            per_value_times = []
+            jitter_list = []
+            jitter_err_list = []
+            param_val_list = []      # seconds for each sweep value
 
             for val in sweep_values(param):
-                if param == "DCcompensate":
-                    registers = parameters.copy()
-                    registers[param] = val
-                    
-                    t0 = time.time()
-                    snspd.set_register(**registers)
-                    set = snspd.TX_reg()
+               
+                registers = parameters.copy()
+                registers[param] = val
+                
+                t0 = time.time()
+                snspd.set_register(**registers)
+                set = snspd.TX_reg()
 
-                    if set != True:
-                        print(f"{param} not set correctly")
-                        break
+                if set != True:
+                    print(f"{param} not set correctly")
+                    break
 
-                    print(f"\nSet {param} = {val}")
-                    
-                    # Acquire data from scope and calculate jitter
-                    stdv_val, stdv_err = scope_acq(param, sweep_val=val,
-                                        num_samples=num_samples, N=N, num_loops=num_loops,
-                                        div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
-                                        ref_thresh=ref_thresh, chip_thresh=chip_thresh, 
-                                        std_cutoff=std_cutoff)
-                    
-                    elapsed = time.time() - t0
-                    per_value_times.append(elapsed)
-                    param_val_list.append(val)
-                    
-                    # Store jitter values
-                    jitter_list.append(stdv_val)
-                    jitter_err_list.append(stdv_err)
+                print(f"\nSet {param} = {val}")
+                
+                # Acquire data from scope and calculate jitter
+                stdv_val, stdv_err = scope_acq(param, sweep_val=val,
+                                    num_samples=num_samples, N=N, num_loops=num_loops,
+                                    div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
+                                    ref_thresh=ref_thresh, chip_thresh=chip_thresh, 
+                                    std_cutoff=std_cutoff)
+                
+                elapsed = time.time() - t0
+                per_value_times.append(elapsed)
+                param_val_list.append(val)
+                
+                # Store jitter values
+                jitter_list.append(stdv_val)
+                jitter_err_list.append(stdv_err)
 
             # --- per-parameter summary ---
             num_points = len(per_value_times)
@@ -386,13 +389,15 @@ if __name__ == "__main__":
                 f"  Total time:          {total_time_s:.2f} s ({total_time_s/60:.2f} min)\n"
                 f"  Mean per value:      {mean_time_s:.2f} s\n"
             )
+            fwhm_vals = np.asarray(jitter_list) * 2*np.sqrt(2*np.log(2))
+            fwhm_errs = np.asarray(jitter_err_list) * 2*np.sqrt(2*np.log(2))
+
+            plt.errorbar(param_val_list, jitter_list, jitter_err_list, fmt="-bo")
+            plt.xlabel(f"{param} vals")
+            plt.ylabel("Delay Stdv")
+            plt.title(f"Delay Standard Deviation (Jitter) vs {param}")
+            plt.savefig("jitter_vs_param.png", dpi=300, bbox_inches="tight")
+            plt.close()
         print("\nSweep completed successfully!")
 
-    fwhm_vals = np.asarray(jitter_list) * 2*np.sqrt(2*np.log(2))
-    fwhm_errs = np.asarray(jitter_err_list) * 2*np.sqrt(2*np.log(2))
-
-    plt.errorbar(param_val_list, jitter_list, jitter_err_list, fmt="-bo")
-    plt.xlabel("VRL vals")
-    plt.ylabel("Delay Stdv")
-    plt.title("Delay Standard Deviation (Jitter) vs DCcomp")
-    plt.show()
+            

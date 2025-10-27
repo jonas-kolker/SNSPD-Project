@@ -520,6 +520,9 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
     perr = np.sqrt(np.diag(pcov))
     A_err, mu_err, sigma_err = perr
 
+    # Make sure stdv value is positive (negative values can still yield a good fit)
+    sigma_fit = np.abs(sigma_fit)
+
     #  Generate fitted Gaussian curve 
     x_fit = np.linspace(np.min(filtered_data), np.max(filtered_data), 1000)
     y_fit = gaussian(x_fit, A_fit, mu_fit, sigma_fit)
@@ -532,6 +535,7 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
     plt.xlabel('Offset (s)')
     plt.ylabel('Counts')
     plt.legend()
+
     if stdv_cutoff !=0:
         plt.title(f'Histogram of Offset Values with Gaussian Fit ({sigma_cut}σ outlier removal)')
     else:
@@ -542,7 +546,6 @@ def make_histogram_and_gaussian(offset_vals, plot=False, hist_bins=30, stdv_cuto
         plt.show()
 
     return fig, sigma_fit, sigma_err, bin_width
-
 
 def calculate_mean_and_std(offset_value_list, deskew_val=30e-9):
 
