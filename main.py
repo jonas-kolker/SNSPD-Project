@@ -118,12 +118,15 @@ def clear_folder(folder_path):
             print(f"Failed to delete {file_path}. Reason: {e}")
 
 def scope_acq(param_name, sweep_val, 
-              num_samples = int(10), N = 3, num_loops = 10, 
-              div_time = 50e-9, hold_time = 900e-9,
+              num_samples = int(500), N = 5000, num_loops = 10, 
+              div_time = 5e-9, hold_time = 100e-9,
               ref_channel="C1", chip_channel="C2",
+              ref_vscale=.05, chip_vscale=.35,
               ref_thresh = .08, chip_thresh = 0.00, 
+              ref_edge_slope="POS", chip_edge_slope="NEG",
               std_cutoff=5, deskew_time=30e-9,
-              hist_bins = 900):   
+              hist_bins = 900,  coupling_ref_channel = "DC50",  coupling_chip_channel = "DC1M",
+              keep_wave_data = True):   
     
     """
     Acquires -- and processes -- waveform data from the scope, triggered by the rising edge of a reference signal followed by the falling edge of a second (chip) signal.
@@ -146,8 +149,19 @@ def scope_acq(param_name, sweep_val,
         ref_channel, chip_channel (str): Scope channels for ref signal, chip signal
         ref_thresh, chip_thresh (float): Voltage thresholds for edges (rising edge for ref, falling edge for chip) used to trigger events and calculate delays
 
+        ref_vscale (float): The vertical divisions on the scope for the reference channel
+        chip_vscale (float): The vertical divisions on the scope for the chip channel
+
+        ref_edge_slope (str): Falling vs rising edge for trigger
+        chip_edge_slope (str): Falling vs rising edge for chip
+
         std_cutoff (int): Any delay data more than this many stdvs from the mean will be discarded and not considered. Removes extreme outlier data.
         deskew_time (int): Delay ref data by this much in acquisition. Helps align edges in both channels so less data to be collected. 
+    
+        coupling_ref_channel (string): Coupling type and impedence of reference channel 
+        coupling_chip_channel (string): Coupling type and impedence of chip channel 
+
+        keep_wave_data (bool): Whether or not to save waveform data
     
     Returns:
         offset_stdv (float): The fitted standard deviation (jitter) of the offsets. If std_cutoff isn't 0, this will be the filtered data value
@@ -170,11 +184,14 @@ def scope_acq(param_name, sweep_val,
     #    clear_folder(save_dir)
 
     os.makedirs(save_dir, exist_ok=True)
-    os.makedirs(save_dir_ref, exist_ok=True)
-    os.makedirs(save_dir_chip, exist_ok=True)
     os.makedirs(save_dir_offset, exist_ok=True)
+
+    if keep_wave_data:
+        os.makedirs(save_dir_ref, exist_ok=True)
+        os.makedirs(save_dir_chip, exist_ok=True)
     
-    clip = N*16 + 32
+    # For clipping out initial metadata in extract_waves_multi_seq()
+    clip = N*16 + 32 # If you use sequence mode, don't change this
 
     with MAUI() as c:
         loop = 0
@@ -185,8 +202,8 @@ def scope_acq(param_name, sweep_val,
             c.reset()
 
             # Set appropriate voltage scales and time divisions for acquisition
-            c.set_vertical_scale(ref_channel, .05) 
-            c.set_vertical_scale(chip_channel, .35)
+            c.set_vertical_scale(ref_channel, ref_vscale) 
+            c.set_vertical_scale(chip_channel, chip_vscale)
             c.set_timebase(div_time)
 
             c.idn() # Needed for scope acquisitions to work for some reason
@@ -203,9 +220,10 @@ def scope_acq(param_name, sweep_val,
             ref_data, chip_data, real_num_samples = ss.extract_waves_multi_seq(c, 
                                                         N=N,
                                                         num_samples=num_samples, 
-                                                        ref_channel="C1", ref_edge_slope="POS", ref_thresh=ref_thresh,
-                                                        chip_channel="C2", chip_edge_slope="NEG", chip_thresh=chip_thresh,
-                                                        hold_time=hold_time, deskew_val=deskew_time, clip=clip)
+                                                        ref_channel=ref_channel, ref_edge_slope=ref_edge_slope, ref_thresh=ref_thresh,
+                                                        chip_channel=chip_channel, chip_edge_slope=chip_edge_slope, chip_thresh=chip_thresh,
+                                                        hold_time=hold_time, deskew_val=deskew_time, clip=clip,  
+                                                        coupling_ref_channel = coupling_ref_channel,  coupling_chip_channel = coupling_chip_channel)
             print(f"\tData acquired")
             
             # Add approprite offset to time data
@@ -224,14 +242,12 @@ def scope_acq(param_name, sweep_val,
                 
                 print(f"\tOffsets calculated")
                 
-                # Save wave data to files specific to this loop
-                np.save(ref_data_file_i, ref_data)
-                np.save(chip_data_file_i, chip_data)
+                if keep_wave_data:
+                    # Save wave data to files specific to this loop
+                    np.save(ref_data_file_i, ref_data)
+                    np.save(chip_data_file_i, chip_data)
+                    print("\tWaveforms saved")
                 
-                # So we don't overflow memory; just for testing
-                os.remove(ref_data_file_i)
-                os.remove(chip_data_file_i)
-                print("\tWaveforms saved")
 
                 # Save offset data to file specific to this loop
                 np.savetxt(offset_file_i, offset_vals)
@@ -267,8 +283,9 @@ def scope_acq(param_name, sweep_val,
         # print(f"Stdv of offset time: {std_val}")
 
         fig, offset_stdv, offset_stdv_err, bin_width = ss.make_histogram_and_gaussian(offset_vals_all, 
-                                                                         hist_bins=hist_bins, 
-                                                                         stdv_cutoff=std_cutoff)
+                                                                                    hist_bins=hist_bins, 
+                                                                                    stdv_cutoff=std_cutoff,
+                                                                                    plot=False)
 
         save_path = os.path.join(save_dir, f"hist_{param_name}{sweep_val}.png")
 
@@ -320,6 +337,10 @@ if __name__ == "__main__":
     hold_time = 100e-9 # Chip falling edge must occur within this many seconds after ref rising edge to trigger acq
     deskew_time = 30e-9 # Delay the ref signal by this much, helps align edges btwn channels for data acq purposes
 
+    # Vertical display scale for the channels on the scope
+    ref_vscale = .05 
+    chip_vscale =.35
+
     # Voltage thresholds for reference and chip signals
     ref_thresh = .05#.08
     chip_thresh = 0.5#0
@@ -328,20 +349,58 @@ if __name__ == "__main__":
     std_cutoff = 3 # Exclude data more than this many raw stdvs from mean
     hist_bins = 100 # How many bins to include in histogram
 
-    # jitter_list = []
-    # jitter_err_list = []
-    # param_val_list = []
+    # Slopes to use for edge detection
+    ref_edge_slope="POS"
+    chip_edge_slope="NEG"
 
-    # Name global variable where everything will be stored
+    # Coupling/impedances for the two channels
+    coupling_ref_channel = "DC50"
+    coupling_chip_channel = "DC1M"
+
+    # Whether or not to save waveform data
+    keep_wave_data = False
+
+    # Name global variable where everything will be stored, you need to change it to a folder in your PC
     save_dir = "C:\\LeCroy\\ScopeData"
-    
+
     # Clear all previous data in save_dir
     clear_folder(save_dir)
+
+    #save the values of parameters
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Path to save file 
+    save_path = os.path.join(save_dir, "parameters.txt")
+
+    # Save all parameters to the text file
+    with open(save_path, "w") as f:
+        f.write("=== Chip Configuration Parameters ===\n\n")
+        f.write("Parameter Dictionary:\n")
+        for k, v in parameters.items():
+            f.write(f"{k} = {v}\n")
+        f.write("\n=== Scope Configuration Parameters ===\n")
+        f.write(f"num_samples = {num_samples}\n")
+        f.write(f"N = {N}\n")
+        f.write(f"num_loops = {num_loops}\n")
+        f.write(f"div_time = {div_time}\n")
+        f.write(f"ref_vscale = {ref_vscale}\n")
+        f.write(f"chip_vscale = {chip_vscale}\n")
+        f.write(f"hold_time = {hold_time}\n")
+        f.write(f"deskew_time = {deskew_time}\n")
+        f.write(f"ref_thresh = {ref_thresh}\n")
+        f.write(f"chip_thresh = {chip_thresh}\n")
+        f.write(f"std_cutoff = {std_cutoff}\n")
+        f.write(f"hist_bins = {hist_bins}\n")
+        f.write(f"ref_edge_slope = {ref_edge_slope}\n")
+        f.write(f"chip_edge_slope = {chip_edge_slope}\n")
+        f.write(f"coupling_ref_channel = {coupling_ref_channel}\n")
+        f.write(f"coupling_chip_channel = {coupling_chip_channel}\n")
+        f.write(f"keep_wave_data = {keep_wave_data}\n")
 
     with Snspd(arduino_port) as snspd:
         print("\nStarting parameter sweep")
 
-        for param in ["Dcomp"]:  # "DCcompensate", "DSNSPD", "VRL", "Dbias_NMOS", "Dbias_PMOS",  "Dcomp", "DCL"
+        for param in ["DCcompensate", "DSNSPD", "VRL", "Dbias_NMOS", "Dbias_PMOS",  "Dcomp", "DCL", "Dcomp"]:  #
             print(f"Sweeping parameter: {param}")
             per_value_times = []
             jitter_list = []
@@ -365,10 +424,13 @@ if __name__ == "__main__":
                 
                 # Acquire data from scope and calculate jitter
                 stdv_val, stdv_err = scope_acq(param, sweep_val=val,
-                                    num_samples=num_samples, N=N, num_loops=num_loops,
-                                    div_time=div_time, hold_time=hold_time, deskew_time=deskew_time, 
-                                    ref_thresh=ref_thresh, chip_thresh=chip_thresh, 
-                                    std_cutoff=std_cutoff)
+                                                num_samples=num_samples, N=N, num_loops=num_loops,
+                                                div_time=div_time, hold_time=hold_time, deskew_time=deskew_time,
+                                                ref_vscale=ref_vscale, chip_vscale=chip_vscale, 
+                                                ref_thresh=ref_thresh, chip_thresh=chip_thresh,
+                                                ref_edge_slope=ref_edge_slope, chip_edge_slope=chip_edge_slope, 
+                                                std_cutoff=std_cutoff, keep_wave_data=keep_wave_data,
+                                                coupling_ref_channel = coupling_ref_channel,  coupling_chip_channel = coupling_chip_channel)
                 
                 elapsed = time.time() - t0
                 per_value_times.append(elapsed)
@@ -403,7 +465,14 @@ if __name__ == "__main__":
             plt.xlabel(f"{param} vals")
             plt.ylabel("Delay Stdv")
             plt.title(f"Delay Standard Deviation (Jitter) vs {param}")
-            plt.savefig(f"jitter_vs_{param}.png", dpi=300, bbox_inches="tight")
+            # Make sure the save directory exists
+            os.makedirs(save_dir, exist_ok=True)
+
+            # Build the full file path
+            save_path = os.path.join(save_dir, f"jitter_vs_{param}.png")
+
+            # Save the plot
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
             plt.close()
         print("\nSweep completed successfully!")
 

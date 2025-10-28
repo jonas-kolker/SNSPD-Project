@@ -5,68 +5,9 @@ from scipy.optimize import curve_fit
 from scipy.stats import norm
 import time
 
-# - - - - - - - - - - - - - - - - - - -  Working with Built-In Scope Histogram Function (NOT TESTED) - - - - - - - - - - - - - - - - - - - 
-
-def setup_jitter_histogram(scope, ch1="C1", ch2="C2", polarity1="FALL", polarity2="FALL", measurement_slot="P1"):
-    """
-    Configure the scope to build a jitter histogram between two channels using the built-in DELAY measurement.
-
-    scope (MAUI.MAUI): An instance of the MAUI class for scope communication
-    ch1, ch2 (str): Channel names 
-    polarity1, polarity2 (str): "RISE" or "FALL"
-    measurement_slot (str): Measurement slot to use on scope
-    """
-
-    # Assign DELAY measurement to parameter slot for offset between ch1 and ch2 edges
-    scope.write(f"VBS 'app.Measure.{measurement_slot}.ParamEngine = \"Delay\"'")
-    scope.write(f"VBS 'app.Measure.{measurement_slot}.Source1 = \"{ch1}\"'")
-    scope.write(f"VBS 'app.Measure.{measurement_slot}.Source2 = \"{ch2}\"'")
-    scope.write(f"VBS 'app.Measure.{measurement_slot}.Edge1Polarity = \"{polarity1}\"'")
-    scope.write(f"VBS 'app.Measure.{measurement_slot}.Edge2Polarity = \"{polarity2}\"'")
-
-    # Enable statistics and histogram view
-    scope.write(f"VBS 'app.Measure.Statistics.State = \"ON\"'")
-    scope.write(f"VBS 'app.Measure.Statistics.HistogramView = \"ON\"'")
-
-    # Clear previous sweeps
-    scope.write("VBS 'app.Measure.ClearSweeps'")
-
-    # (Optional) force histogram to display on screen
-    scope.write(f"VBS 'app.Display.Histogram = \"{measurement_slot}\"'")
-
-    print(f"Jitter histogram configured for {ch1}->{ch2} ({polarity1} to {polarity2})")
-
-
-def extract_histogram_to_csv(scope, filename="C:\\LeCroy\\JitterHist.csv", measurement_slot="P1"):
-    """
-    Saves the histogram for the specified measurement slot to a CSV file
-    and returns a Pandas dataframe.
-
-    Parameters:
-        scope (MAUI.MAUI): An instance of the MAUI class for scope communication
-        filename (str): Full path to save the CSV file
-        measurement_slot (str): Measurement slot to export ("P1", "P2", etc)
-    """
-
-    # Export histogram of measurement slot to file
-    scope.write(f"VBS 'app.Measure.{measurement_slot}.Histogram.Export \"{filename}\"'")
-
-    # Give the scope a moment to finish writing
-    time.sleep(0.5)
-
-    print(f"Histogram exported to {filename}")
-
-    # Load into Python if accessible over shared folder or mapped drive
-    try:
-        df = pd.read_csv(filename)
-        print("Successfully loaded histogram into DataFrame.")
-        return df
-    except:
-        print("Couldn't read back CSV automatically. Ensure the file is accessible.")
-        return None
-
 # - - - - - - - - - - - - - - - - - - - - - -  Working with Raw Scope Waveform Data (USED IN MAIN.PY) - - - - - - - - - - - - - - - - - - - - - - 
 
+# Not used
 def check_number_of_points(scope, channel):
     """
     Checks and prints the default number of points in the acquisition for the specified channel.
@@ -79,7 +20,7 @@ def check_number_of_points(scope, channel):
     num_points = int(float(scope.read(1000)))
     print("Default NumPoints:", num_points)
 
-
+# Not used
 def set_falling_edge_trigger(scope, channel, ref_thresh):
     """
     Configures the oscilloscope to trigger on a falling edge for the specified channel at the given level.
@@ -123,7 +64,7 @@ def set_edge_qualified_trigger(scope, ref_channel="C1", ref_edge_slope="POS", re
     scope.write(f"{ref_channel}:TRSL {ref_edge_slope}")
     scope.write(f"{chip_channel}:TRSL {chip_edge_slope}")
 
-
+# Not used
 def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9, 
                        ref_channel="C1", chip_channel="C2",
                        ref_edge_slope="POS", chip_edge_slope="NEG",
@@ -176,7 +117,7 @@ def extract_waves_once(scope, ref_thresh=.08, chip_thresh=-.9,
 def extract_waves_multi_seq(scope, N, num_samples, 
                             ref_channel="C1", ref_edge_slope="POS", ref_thresh=.08,
                             chip_channel="C2", chip_edge_slope="NEG", chip_thresh=-.9, 
-                            hold_time=50e-9, deskew_val=30e-9, clip=0):
+                            hold_time=50e-9, deskew_val=30e-9, clip=0, coupling_ref_channel = "DC50",  coupling_chip_channel = "DC1M"):
     """
     Retrieves waveforms from both channels of the scope N times (triggered by falling edge). Waveform
     segments are stored on scope until all acquisitions are complete, then they're transferred to the pc.
@@ -189,7 +130,7 @@ def extract_waves_multi_seq(scope, N, num_samples,
         ref_edge_slope (str): Falling vs rising edge for trigger
         ref_thres (float): Threshold voltage
         chip_channel (str): Chip signal channel
-        chip_edge_slope (str): Falling vs rising edge for trigger
+        chip_edge_slope (str): Falling vs rising edge for chip
         chip_thres (float): Threshold voltage
         hold_time (int): Chip falling edge must occur within this many seconds after ref rising edge
         clip (int): Exclude this many initial data points
@@ -213,8 +154,8 @@ def extract_waves_multi_seq(scope, N, num_samples,
     num_samples = int(real_num_samples)
 
     # Set proper coupling for both channels
-    scope.write(f"""VBS 'app.Acquisition.{ref_channel}.Coupling = "DC50"'""")
-    scope.write(f"""VBS 'app.Acquisition.{chip_channel}.Coupling = "DC1M"'""")
+    scope.write(f"""VBS 'app.Acquisition.{ref_channel}.Coupling = "{coupling_ref_channel}" '""")
+    scope.write(f"""VBS 'app.Acquisition.{chip_channel}.Coupling = "{coupling_chip_channel}" '""")
 
     # Set the trigger to falling edge on channel 1 below threshold voltage
     set_edge_qualified_trigger(scope, 
@@ -262,6 +203,7 @@ def chunk_data(data_array, num_samples):
 
     return chunks 
 
+# Not used, but present in get_offsets (commented out)
 def get_crossing_inds_w_historesis(data, threshold, slope, hysteresis=0.1):
     """
     Find the indices in a data array where a rising or falling edge crosses some threshold with state-based hysteresis.
